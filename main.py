@@ -1,443 +1,266 @@
 import streamlit as st
 from supabase import create_client, Client
-import requests # Sadece requests kullanıyoruz
+import requests
 import json
 import random
 import time
+from datetime import date, datetime
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# Oturum Hafızası
-if 'gosterilen_filmler' not in st.session_state:
-    st.session_state.gosterilen_filmler = []
-
-# CSS Yükleme
+# CSS Yükleme (Tasarım)
 def local_css(file_name):
-    try:
-        with open(file_name) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    except FileNotFoundError:
-        pass
+    st.markdown(f"""
+    <style>
+    .stButton>button {{
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+    }}
+    .premium-box {{
+        padding: 20px;
+        background-color: #ffd700;
+        color: black;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+    }}
+    .limit-info {{
+        font-size: 0.8em;
+        color: #666;
+        text-align: center;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
 
 local_css("style.css")
 
-# --- 2. DİL SÖZLÜĞÜ (7 DİL) ---
-translations = {
-    "TR": {
-        "title": "CineMatch AI",
-        "subtitle": "Yapay Zeka Destekli Kişisel Sinema Asistanın",
-        "settings": "⚙️ Ayarlar",
-        "name_label": "Adın:",
-        "name_placeholder": "İsminiz...",
-        "genre_label": "Tür:",
-        "detail_label": "Ekstra Detay (Opsiyonel):",
-        "detail_placeholder": "Örn: 2020 sonrası olsun...",
-        "how_to_watch": "⚡ Nasıl İzleyeceksin?",
-        "btn_love": "💑 Sevgiliyle",
-        "btn_random": "🎲 Rastgele",
-        "btn_family": "👨‍👩‍👧‍👦 Aileyle",
-        "btn_normal": "🚀 Normal Ara",
-        "btn_history": "Geçmiş Aramalarım",
-        "btn_clear": "🗑️ Hafızayı Temizle",
-        "msg_warning_name": "Lütfen önce sol menüden adını yaz.",
-        "msg_success_history": "Hafıza temizlendi.",
-        "msg_searching": "Film seçiliyor (Protokol: REST 1.5)...",
-        "res_platform": "Platform:",
-        "res_trailer": "▶️ Fragman",
-        "res_watch": "🍿 Hemen İzle",
-        "prompt_lang": "Turkish",
-        "genres": ["Tümü", "Anime", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Suç", "Dram", "Animasyon"]
-    },
-    "EN": {
-        "title": "CineMatch AI",
-        "subtitle": "AI-Powered Personal Movie Assistant",
-        "settings": "⚙️ Settings",
-        "name_label": "Your Name:",
-        "name_placeholder": "Name...",
-        "genre_label": "Genre:",
-        "detail_label": "Extra Details:",
-        "detail_placeholder": "E.g., Released after 2020...",
-        "how_to_watch": "⚡ Context / Mood",
-        "btn_love": "💑 Date Night",
-        "btn_random": "🎲 I'm Feeling Lucky",
-        "btn_family": "👨‍👩‍👧‍👦 Family Time",
-        "btn_normal": "🚀 Standard Search",
-        "btn_history": "My History",
-        "btn_clear": "🗑️ Clear Memory",
-        "msg_warning_name": "Please enter your name first.",
-        "msg_success_history": "Memory cleared.",
-        "msg_searching": "Selecting movies...",
-        "res_platform": "Platform:",
-        "res_trailer": "▶️ Trailer",
-        "res_watch": "🍿 Watch Now",
-        "prompt_lang": "English",
-        "genres": ["All", "Anime", "Sci-Fi", "Action", "Thriller", "Horror", "Romance", "Comedy", "Crime", "Drama", "Animation"]
-    },
-    "IT": {
-        "title": "CineMatch AI",
-        "subtitle": "Il Tuo Assistente Personale di Cinema con IA",
-        "settings": "⚙️ Impostazioni",
-        "name_label": "Il tuo nome:",
-        "name_placeholder": "Nome...",
-        "genre_label": "Genere:",
-        "detail_label": "Dettagli Extra:",
-        "detail_placeholder": "Es: Uscito dopo il 2020...",
-        "how_to_watch": "⚡ Come guarderai?",
-        "btn_love": "💑 Con Partner",
-        "btn_random": "🎲 Mi sento fortunato",
-        "btn_family": "👨‍👩‍👧‍👦 Con Famiglia",
-        "btn_normal": "🚀 Ricerca Normale",
-        "btn_history": "Cronologia",
-        "btn_clear": "🗑️ Cancella Memoria",
-        "msg_warning_name": "Inserisci il tuo nome.",
-        "msg_success_history": "Memoria cancellata.",
-        "msg_searching": "Selezione in corso...",
-        "res_platform": "Piattaforma:",
-        "res_trailer": "▶️ Trailer",
-        "res_watch": "🍿 Guarda Ora",
-        "prompt_lang": "Italian",
-        "genres": ["Tutti", "Anime", "Fantascienza", "Azione", "Thriller", "Horror", "Romantico", "Commedia", "Crimine", "Drammatico", "Animazione"]
-    },
-    "ES": {
-        "title": "CineMatch AI",
-        "subtitle": "Asistente de Cine Personal con IA",
-        "settings": "⚙️ Configuración",
-        "name_label": "Tu Nombre:",
-        "name_placeholder": "Nombre...",
-        "genre_label": "Género:",
-        "detail_label": "Detalles Extra:",
-        "detail_placeholder": "Ej: Después de 2020...",
-        "how_to_watch": "⚡ ¿Cómo verás?",
-        "btn_love": "💑 Cita Romántica",
-        "btn_random": "🎲 Voy a tener suerte",
-        "btn_family": "👨‍👩‍👧‍👦 En Familia",
-        "btn_normal": "🚀 Búsqueda Normal",
-        "btn_history": "Historial",
-        "btn_clear": "🗑️ Borrar Memoria",
-        "msg_warning_name": "Introduce tu nombre primero.",
-        "msg_success_history": "Memoria borrada.",
-        "msg_searching": "Buscando películas...",
-        "res_platform": "Plataforma:",
-        "res_trailer": "▶️ Tráiler",
-        "res_watch": "🍿 Ver Ahora",
-        "prompt_lang": "Spanish",
-        "genres": ["Todos", "Anime", "Ciencia Ficción", "Acción", "Suspenso", "Terror", "Romance", "Comedia", "Crimen", "Drama", "Animación"]
-    },
-    "FR": {
-        "title": "CineMatch AI",
-        "subtitle": "Assistant Cinéma Personnel IA",
-        "settings": "⚙️ Paramètres",
-        "name_label": "Votre Nom:",
-        "name_placeholder": "Nom...",
-        "genre_label": "Genre:",
-        "detail_label": "Détails Supplémentaires:",
-        "detail_placeholder": "Ex: Après 2020...",
-        "how_to_watch": "⚡ Contexte",
-        "btn_love": "💑 En Couple",
-        "btn_random": "🎲 J'ai de la chance",
-        "btn_family": "👨‍👩‍👧‍👦 En Famille",
-        "btn_normal": "🚀 Recherche Normale",
-        "btn_history": "Historique",
-        "btn_clear": "🗑️ Effacer Mémoire",
-        "msg_warning_name": "Entrez votre nom d'abord.",
-        "msg_success_history": "Mémoire effacée.",
-        "msg_searching": "Sélection de films...",
-        "res_platform": "Plateforme:",
-        "res_trailer": "▶️ Bande-annonce",
-        "res_watch": "🍿 Regarder",
-        "prompt_lang": "French",
-        "genres": ["Tous", "Anime", "Science-Fiction", "Action", "Thriller", "Horreur", "Romance", "Comédie", "Crime", "Drame", "Animation"]
-    },
-    "DE": {
-        "title": "CineMatch AI",
-        "subtitle": "KI-Persönlicher Filmassistent",
-        "settings": "⚙️ Einstellungen",
-        "name_label": "Dein Name:",
-        "name_placeholder": "Name...",
-        "genre_label": "Genre:",
-        "detail_label": "Extra Details:",
-        "detail_placeholder": "Z.B.: Nach 2020...",
-        "how_to_watch": "⚡ Kontext",
-        "btn_love": "💑 Date Night",
-        "btn_random": "🎲 Auf gut Glück",
-        "btn_family": "👨‍👩‍👧‍👦 Mit Familie",
-        "btn_normal": "🚀 Normale Suche",
-        "btn_history": "Verlauf",
-        "btn_clear": "🗑️ Speicher leeren",
-        "msg_warning_name": "Bitte gib zuerst deinen Namen ein.",
-        "msg_success_history": "Speicher gelöscht.",
-        "msg_searching": "Filme werden ausgewählt...",
-        "res_platform": "Plattform:",
-        "res_trailer": "▶️ Trailer",
-        "res_watch": "🍿 Jetzt Ansehen",
-        "prompt_lang": "German",
-        "genres": ["Alle", "Anime", "Science-Fiction", "Action", "Thriller", "Horror", "Romantik", "Komödie", "Krimi", "Drama", "Animation"]
-    },
-    "JP": {
-        "title": "CineMatch AI",
-        "subtitle": "AI搭載のパーソナル映画アシスタント",
-        "settings": "⚙️ 設定",
-        "name_label": "名前:",
-        "name_placeholder": "名前...",
-        "genre_label": "ジャンル:",
-        "detail_label": "詳細 (オプション):",
-        "detail_placeholder": "例: 2020年以降...",
-        "how_to_watch": "⚡ シチュエーション",
-        "btn_love": "💑 デート",
-        "btn_random": "🎲 お任せ",
-        "btn_family": "👨‍👩‍👧‍👦 家族で",
-        "btn_normal": "🚀 通常検索",
-        "btn_history": "履歴",
-        "btn_clear": "🗑️ メモリ消去",
-        "msg_warning_name": "名前を入力してください。",
-        "msg_success_history": "メモリを消去しました。",
-        "msg_searching": "映画を選んでいます...",
-        "res_platform": "プラットフォーム:",
-        "res_trailer": "▶️ 予告編",
-        "res_watch": "🍿 今すぐ観る",
-        "prompt_lang": "Japanese",
-        "genres": ["すべて", "アニメ", "SF", "アクション", "スリラー", "ホラー", "ロマンス", "コメディ", "犯罪", "ドラマ", "アニメーション"]
-    }
-}
+# --- 2. VERİTABANI BAĞLANTISI ---
+try:
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    supabase: Client = create_client(url, key)
+except Exception as e:
+    st.error("Veritabanı bağlantı hatası. Lütfen Secrets ayarlarını kontrol et.")
+    st.stop()
 
-# --- 3. YARDIMCI FONKSİYONLAR ---
+# --- 3. OTURUM YÖNETİMİ ---
+if 'user' not in st.session_state:
+    st.session_state.user = None # Giriş yapmış kullanıcı bilgisi
+if 'gosterilen_filmler' not in st.session_state:
+    st.session_state.gosterilen_filmler = []
+
+# --- 4. YARDIMCI FONKSİYONLAR ---
+
+def login_user(username, password):
+    """Kullanıcı girişi yapar ve haftalık limiti kontrol eder."""
+    try:
+        response = supabase.table("users").select("*").eq("username", username).eq("password", password).execute()
+        if response.data:
+            user_data = response.data[0]
+            
+            # --- HAFTALIK SIFIRLAMA MANTIĞI ---
+            bugun = date.today()
+            # Veritabanından gelen tarihi (YYYY-MM-DD) al
+            last_active_str = str(user_data['last_active']) 
+            try:
+                last_active_date = datetime.strptime(last_active_str, "%Y-%m-%d").date()
+            except:
+                last_active_date = bugun # Hata olursa bugünü baz al
+            
+            # Kaç gün geçmiş?
+            gun_farki = (bugun - last_active_date).days
+            
+            # Eğer 7 gün veya daha fazla geçmişse hakları fulle
+            if gun_farki >= 7:
+                supabase.table("users").update({"daily_usage": 0, "last_active": str(bugun)}).eq("id", user_data['id']).execute()
+                user_data['daily_usage'] = 0
+                user_data['last_active'] = str(bugun)
+                st.toast("📅 Yeni hafta! Hakların sıfırlandı.")
+            
+            st.session_state.user = user_data
+            st.success(f"Hoş geldin, {username}!")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Kullanıcı adı veya şifre hatalı.")
+    except Exception as e:
+        st.error(f"Giriş hatası: {e}")
+
+def register_user(username, password):
+    """Yeni kullanıcı kaydeder."""
+    try:
+        check = supabase.table("users").select("*").eq("username", username).execute()
+        if check.data:
+            st.warning("Bu kullanıcı adı zaten alınmış.")
+        else:
+            supabase.table("users").insert({
+                "username": username, 
+                "password": password,
+                "is_premium": False,
+                "daily_usage": 0,
+                "last_active": str(date.today()) # Kayıt tarihi başlangıçtır
+            }).execute()
+            st.success("Kayıt başarılı! Şimdi giriş yapabilirsin.")
+    except Exception as e:
+        st.error(f"Kayıt hatası: {e}")
+
+def check_limits():
+    """Limit kontrolü yapar."""
+    user = st.session_state.user
+    if not user: return False
+    
+    if user['is_premium']:
+        return True
+    
+    # LİMİT: Haftada 3 Hak
+    limit = 3
+    if user['daily_usage'] < limit:
+        return True
+    else:
+        return False
+
+def update_usage():
+    """Kullanım sayısını artırır."""
+    user = st.session_state.user
+    if user:
+        new_count = user['daily_usage'] + 1
+        # Tarihi güncellemiyoruz! Tarih sadece sıfırlanacağı zaman (7 gün sonra) değişir.
+        supabase.table("users").update({"daily_usage": new_count}).eq("id", user['id']).execute()
+        st.session_state.user['daily_usage'] = new_count
+
+# Film Afişi
 def get_movie_poster(movie_name):
     try:
         api_key = st.secrets["tmdb"]["api_key"]
         url = f"https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={movie_name}"
-        response = requests.get(url).json()
-        if response['results']:
-            poster_path = response['results'][0]['poster_path']
-            return f"https://image.tmdb.org/t/p/w500{poster_path}"
-        else:
-            return "https://via.placeholder.com/500x750?text=No+Img"
+        res = requests.get(url).json()
+        if res['results']:
+            return f"https://image.tmdb.org/t/p/w500{res['results'][0]['poster_path']}"
+        return "https://via.placeholder.com/500x750?text=No+Img"
     except:
         return "https://via.placeholder.com/500x750?text=Error"
 
-def puana_gore_sirala(filmler_listesi):
-    def puan_temizle(film):
-        try:
-            puan_str = str(film.get('puan', '0')).split('/')[0].strip()
-            return float(puan_str)
-        except:
-            return 0.0
-    return sorted(filmler_listesi, key=puan_temizle, reverse=True)
+# --- 5. ANA EKRAN MANTIĞI ---
 
-# --- 4. VERİTABANI BAĞLANTISI ---
-try:
-    supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-except Exception as e:
-    st.error(f"DB Error: {e}")
-    st.stop()
+if st.session_state.user is None:
+    st.markdown("<h1 style='text-align: center;'>🍿 CineMatch AI</h1>", unsafe_allow_html=True)
+    st.info("Film önerisi almak için lütfen giriş yapın.")
+    
+    tab1, tab2 = st.tabs(["Giriş Yap", "Kayıt Ol"])
+    with tab1:
+        l_user = st.text_input("Kullanıcı Adı", key="l_u")
+        l_pass = st.text_input("Şifre", type="password", key="l_p")
+        if st.button("Giriş Et"):
+            if l_user and l_pass: login_user(l_user, l_pass)
+            else: st.warning("Doldurunuz.")
+    with tab2:
+        r_user = st.text_input("Kullanıcı Adı Seç", key="r_u")
+        r_pass = st.text_input("Şifre Seç", type="password", key="r_p")
+        if st.button("Kayıt Ol"):
+            if r_user and r_pass: register_user(r_user, r_pass)
+            else: st.warning("Doldurunuz.")
 
-# --- 5. MANUEL REST API ÇAĞRISI (GEMINI 1.5 FLASH) ---
-def call_gemini_direct(prompt_text):
-    # BURASI ÇOK ÖNEMLİ: "gemini-1.5-flash" kullanıyoruz.
-    # Python kütüphanesi bunu bulamıyor ama REST API bulacaktır.
-    model_name = "gemini-1.5-flash"
-    api_key = st.secrets["google"]["api_key"]
+else:
+    user = st.session_state.user
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [{
-            "parts": [{"text": prompt_text}]
-        }],
-        "generationConfig": {
-            "response_mime_type": "application/json"
-        }
-    }
-    
-    # Hata yakalama
-    response = requests.post(url, headers=headers, json=data)
-    
-    if response.status_code == 200:
-        return response.json()
-    elif response.status_code == 429:
-        raise Exception(f"⚠️ KOTA DOLDU (429). Lütfen API Key'i değiştirin veya 1 saat bekleyin. (Model: {model_name})")
-    elif response.status_code == 404:
-        # Eğer 1.5 Flash bulunamazsa 1.0 Pro'yu dene (Yedek)
-        fallback_model = "gemini-pro"
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent?key={api_key}"
-        response_fallback = requests.post(url_fallback, headers=headers, json=data)
-        if response_fallback.status_code == 200:
-            return response_fallback.json()
+    # Sidebar
+    with st.sidebar:
+        st.markdown(f"### 👤 {user['username']}")
+        
+        if user['is_premium']:
+            st.success("🌟 PREMIUM")
+            st.write("Sınırsız Erişim")
         else:
-            raise Exception(f"⚠️ HİÇBİR MODEL BULUNAMADI. API Key hatası olabilir. (Hata: {response.status_code})")
-    else:
-        raise Exception(f"API Hatası: {response.status_code} - {response.text}")
+            st.info("STANDART")
+            kalan = 3 - user['daily_usage']
+            st.write(f"Haftalık Hak: **{kalan}/3**")
+            st.progress(user['daily_usage'] / 3)
+            
+            # Kalan gün hesaplama
+            last_active_date = datetime.strptime(str(user['last_active']), "%Y-%m-%d").date()
+            gecen_gun = (date.today() - last_active_date).days
+            kalan_gun = 7 - gecen_gun
+            if kalan_gun < 0: kalan_gun = 0
+            
+            st.caption(f"Yenilenmeye: {kalan_gun} gün var")
+            
+            if kalan == 0:
+                st.error("Bu haftalık hakkın bitti!")
+                st.markdown(
+                    """
+                    <div class='premium-box'>
+                        <h3>🚀 Premium Al</h3>
+                        <p>Beklemek istemiyor musun?</p>
+                        <p>Sadece $1 (35 TL)</p>
+                        <a href='https://www.buymeacoffee.com' target='_blank' style='display:block; background:black; color:white; padding:10px; border-radius:5px; text-decoration:none; font-weight:bold;'>HEMEN GEÇ</a>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
 
-# --- 6. ARAYÜZ MANTIK ---
-with st.sidebar:
-    selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
-    t = translations[selected_lang]
+        if st.button("Çıkış Yap"):
+            st.session_state.user = None
+            st.rerun()
 
-st.markdown(f"<h1>🍿 {t['title']}</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; color: #bbb; font-size: 1.2rem;'>{t['subtitle']}</p>", unsafe_allow_html=True)
-
-tetikleyici = False
-final_prompt_tur = ""
-final_prompt_detay = ""
-mod_aciklamasi = ""
-
-with st.sidebar:
-    st.markdown(f"### {t['settings']}")
-    ad = st.text_input(t['name_label'], placeholder=t['name_placeholder'], key="user_name")
+    st.markdown("<h1>🍿 CineMatch AI</h1>", unsafe_allow_html=True)
     
-    secilen_tur = st.selectbox(t['genre_label'], t['genres'])
-    secilen_detay = st.text_area(t['detail_label'], placeholder=t['detail_placeholder'])
-
-    st.markdown("---")
-    st.markdown(f"### {t['how_to_watch']}")
+    secilen_tur = st.selectbox("Tür:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Dram"])
+    secilen_detay = st.text_area("Detay:", placeholder="Örn: Sürpriz sonlu olsun...")
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        if st.button(t['btn_love'], use_container_width=True):
-            tetikleyici = True
-            mod_aciklamasi = "Couple/Date Mode"
-            final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Context: Watching with partner. Good flow, no extreme gore unless requested."
-
-        if st.button(t['btn_random'], use_container_width=True):
-            tetikleyici = True
-            mod_aciklamasi = "Random Mode"
-            konular = ["Plot Twist", "Dystopia", "One Room Thriller", "Psychological", "Crime/Mystery", "Mind-Bending"]
-            sansli_konu = random.choice(konular)
-            final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Theme: '{sansli_konu}'. Hidden gem."
-
+        btn_normal = st.button("🚀 Normal Ara", use_container_width=True)
     with col2:
-        if st.button(t['btn_family'], use_container_width=True):
-            tetikleyici = True
-            mod_aciklamasi = "Family Mode"
-            final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Context: Family night. NO explicit content/violence."
+        btn_couple = st.button("💑 Sevgili Modu (Pro)", use_container_width=True, disabled=not user['is_premium'])
+        if not user['is_premium']: st.caption("🔒 Premium'a özel")
 
-        if st.button(t['btn_normal'], use_container_width=True):
-            tetikleyici = True
-            mod_aciklamasi = "Manual Search"
-            final_prompt_tur = secilen_tur
-            final_prompt_detay = secilen_detay
-
-    st.markdown("---")
-    if st.button(t['btn_history']):
-        if ad:
-            try:
-                data = supabase.table("users").select("*").eq("username", ad).order("created_at", desc=True).limit(5).execute()
-                if data.data:
-                    for satir in data.data:
-                        st.info(f"{satir['favorite_genre']}")
-                        st.divider()
-                else:
-                    st.warning("...")
-            except:
-                pass
-    
-    if len(st.session_state.gosterilen_filmler) > 0:
-        if st.button(t['btn_clear']):
-            st.session_state.gosterilen_filmler = []
-            st.success(t['msg_success_history'])
-            
-    # BUY ME A COFFEE
-    st.markdown("---")
-    st.markdown("### ☕ Destek Ol")
-    st.markdown(
-        """
-        <a href="https://www.buymeacoffee.com" target="_blank">
-            <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" >
-        </a>
-        """,
-        unsafe_allow_html=True
-    )
-
-# --- 7. İŞLEM ---
-if tetikleyici and ad:
-    with st.spinner(f"🎬 {t['msg_searching']}"):
-        
-        try:
-            log_text = f"[{selected_lang}] {final_prompt_tur} - {final_prompt_detay}"
-            supabase.table("users").insert({"username": ad, "favorite_genre": log_text}).execute()
-        except:
-            pass
-
-        yasakli_liste = ", ".join(st.session_state.gosterilen_filmler)
-        
-        prompt = f"""
-        Role: Movie curator.
-        Target Language: {t['prompt_lang']} (ANSWER IN THIS LANGUAGE)
-        Genre: {final_prompt_tur}
-        Details: {final_prompt_detay}
-        
-        Rule 1: Ignore these movies: [{yasakli_liste}]
-        Rule 2: Recommend exactly 6 movies.
-        Rule 3: Real IMDb scores.
-        
-        JSON Format ONLY:
-        [
-            {{
-                "film_adi": "Original Name",
-                "turkce_ad": "Translated Name",
-                "yil": "2023",
-                "puan": "8.8",
-                "platform": "Netflix, Disney+ etc.",
-                "neden": "Reason in {t['prompt_lang']}"
-            }}, ...
-        ]
-        """
-        
-        try:
-            # DIRECT API ÇAĞRISI
-            json_result = call_gemini_direct(prompt)
-            
-            # JSON Çözümleme
-            try:
-                text_content = json_result['candidates'][0]['content']['parts'][0]['text']
-                filmler_ham = json.loads(text_content)
-                filmler = puana_gore_sirala(filmler_ham)
-                
-                for f in filmler:
-                    st.session_state.gosterilen_filmler.append(f['film_adi'])
-
-                st.success("✨")
-                st.markdown("---")
-                
-                for i in range(0, len(filmler), 3):
-                    cols = st.columns(3)
-                    for j in range(3):
-                        if i + j < len(filmler):
-                            film = filmler[i+j]
-                            with cols[j]:
-                                poster_url = get_movie_poster(film['film_adi'])
-                                st.image(poster_url, use_container_width=True)
-                                
-                                try:
-                                    p = float(film['puan'])
-                                    renk = "🟢" if p >= 8.0 else "🟡" if p >= 6.5 else "🔴"
-                                except:
-                                    renk = "⭐"
-
-                                st.markdown(f"### {film['turkce_ad']}")
-                                st.caption(f"{renk} **{film['puan']}** | 📅 {film['yil']}")
-                                st.markdown(f"📺 **{t['res_platform']}** {film.get('platform', '-')}")
-                                st.info(f"{film['neden']}")
-                                
-                                col_btn1, col_btn2 = st.columns(2)
-                                with col_btn1:
-                                    lnk = f"https://www.youtube.com/results?search_query={film['film_adi'].replace(' ', '+')}+trailer"
-                                    st.link_button(t['res_trailer'], lnk, use_container_width=True)
-                                with col_btn2:
-                                    lnk2 = f"https://www.google.com/search?q={film['film_adi'].replace(' ', '+')}+watch"
-                                    st.link_button(t['res_watch'], lnk2, use_container_width=True)
-                                
-                    st.markdown("<br>", unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"JSON Ayrıştırma Hatası: {e} - API Yanıtı: {json_result}")
-                
-        except Exception as e:
-            st.error(f"{e}")
-
-elif tetikleyici and not ad:
-    st.warning(t['msg_warning_name'])
+    if btn_normal or (btn_couple and user['is_premium']):
+        if not check_limits():
+            st.error("🚨 Bu haftalık 3 arama hakkın doldu!")
+            st.info(f"Hakların {kalan_gun} gün sonra yenilenecek. Veya $1 verip beklemeden sınırsız yapabilirsin.")
+        else:
+            with st.spinner("Yapay zeka film seçiyor..."):
+                try:
+                    # REST API (1.5 Flash)
+                    api_key = st.secrets["google"]["api_key"]
+                    model_name = "gemini-1.5-flash"
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                    
+                    yasakli = ", ".join(st.session_state.gosterilen_filmler)
+                    prompt_context = "COUPLE MODE: Safe for date night." if btn_couple else "NORMAL MODE."
+                    
+                    prompt = f"""
+                    Role: Movie curator. Language: Turkish.
+                    Genre: {secilen_tur}. Details: {secilen_detay}. {prompt_context}
+                    Ignore: [{yasakli}].
+                    Return EXACTLY 3 movies. JSON Format:
+                    [{{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }}]
+                    """
+                    
+                    data = {"contents": [{"parts": [{"text": prompt}]}]}
+                    headers = {"Content-Type": "application/json"}
+                    
+                    resp = requests.post(url, headers=headers, json=data)
+                    
+                    if resp.status_code == 200:
+                        content = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                        filmler = json.loads(content.replace('```json', '').replace('```', '').strip())
+                        
+                        update_usage()
+                        
+                        cols = st.columns(3)
+                        for i, film in enumerate(filmler):
+                            st.session_state.gosterilen_filmler.append(film['film_adi'])
+                            with cols[i]:
+                                st.image(get_movie_poster(film['film_adi']), use_container_width=True)
+                                st.subheader(film['film_adi'])
+                                st.caption(f"⭐ {film['puan']} | 📅 {film['yil']}")
+                                st.info(film['neden'])
+                    elif resp.status_code == 429:
+                        st.error("Sunucu çok yoğun (429). 1 Dakika bekleyip tekrar dene.")
+                    else:
+                        st.error(f"Hata: {resp.status_code}")
+                        
+                except Exception as e:
+                    st.error(f"Bağlantı hatası: {e}")
