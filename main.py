@@ -8,7 +8,7 @@ import random
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# Oturum Hafızası (Tekrarı Önlemek İçin)
+# Oturum Hafızası
 if 'gosterilen_filmler' not in st.session_state:
     st.session_state.gosterilen_filmler = []
 
@@ -224,13 +224,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (GARANTİ MODEL) ---
+# --- 4. BAĞLANTILAR (ESKİ DOST MODEL: GEMINI PRO) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # KESİN ÇÖZÜM İÇİN MODEL İSMİ GÜNCELLENDİ 👇
-    model = genai.GenerativeModel('models/gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+    # İŞTE ÇÖZÜM: 'gemini-pro' her sürümde vardır ve çalışır. 👇
+    model = genai.GenerativeModel('gemini-pro', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -306,6 +306,18 @@ with st.sidebar:
         if st.button(t['btn_clear']):
             st.session_state.gosterilen_filmler = []
             st.success(t['msg_success_history'])
+            
+    # BUY ME A COFFEE (PARA KAZANMA BAŞLANGICI)
+    st.markdown("---")
+    st.markdown("### ☕ Destek Ol")
+    st.markdown(
+        """
+        <a href="https://www.buymeacoffee.com" target="_blank">
+            <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" >
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- 6. İŞLEM ---
 if tetikleyici and ad:
