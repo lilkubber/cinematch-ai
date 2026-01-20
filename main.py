@@ -1,130 +1,107 @@
 import streamlit as st
-import http.client
+import requests
 import json
-import urllib.parse # URL uyumlu hale getirmek için (standart kütüphane)
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="CineMatch Pro", page_icon="🍿", layout="wide")
+st.set_page_config(page_title="CineMatch Safe", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
 .stApp { background-color: #0e0e0e; color: #e5e5e5; }
 .stButton>button { background: linear-gradient(90deg, #E50914 0%, #B20710 100%); color: white; border: none; height: 3em; width: 100%; font-weight: bold; font-size: 18px; }
-.movie-title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #fff; }
+.movie-card { background-color: #1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid #333; margin-bottom: 20px; }
+.movie-title { font-size: 22px; font-weight: bold; color: #E50914; }
+.movie-meta { font-size: 14px; color: #888; margin-bottom: 10px; }
+.movie-rating { color: #FFD700; font-weight: bold; font-size: 16px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. HAFİF FONKSİYONLAR (http.client ile) ---
-
-def get_groq_json(prompt_text):
-    """AI'dan JSON formatında veri ister (Kütüphanesiz)."""
+# --- 2. GÜVENLİ YAPAY ZEKA FONKSİYONU ---
+def get_safe_recommendations(prompt_text):
+    # Secrets Kontrolü
     if "groq" not in st.secrets:
-        st.error("Groq API Key eksik!")
+        st.error("❌ HATA: Secrets ayarlarında [groq] anahtarı yok!")
         return None
         
     api_key = st.secrets["groq"]["api_key"]
-    conn = http.client.HTTPSConnection("api.groq.com")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     
-    # JSON Formatını zorlayan Prompt
+    # Yapay Zekaya "Bana JSON ver" diyoruz.
+    # Puanı, yılı ve özeti yapay zeka kendi hafızasından yazacak.
     system_prompt = """
-    Sen bir film asistanısın. Türkçe cevap ver.
-    Cevabın SADECE geçerli bir JSON formatında olmalı.
-    Şu formatı kullan:
+    Sen bir film uzmanısın. Türkçe cevap ver.
+    Cevabın SADECE şu JSON formatında olmalı, başka hiçbir kelime etme:
     {
         "movies": [
-            { "isim": "Film Adı", "yil": "2023", "puan": "8.5", "ozet": "Kısa özet." }
+            { "isim": "Film Adı", "yil": "2023", "puan": "8.5", "ozet": "İlgi çekici kısa özet." },
+            { "isim": "Film Adı 2", "yil": "2022", "puan": "7.1", "ozet": "İlgi çekici kısa özet." },
+            { "isim": "Film Adı 3", "yil": "2020", "puan": "9.0", "ozet": "İlgi çekici kısa özet." }
         ]
     }
     """
     
-    payload = json.dumps({
+    data = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"İstek: {prompt_text}. Bana tam 3 film öner."}
+            {"role": "user", "content": f"İstek: {prompt_text}. Bana en iyi 3 filmi öner."}
         ],
         "response_format": {"type": "json_object"}
-    })
-    
-    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+    }
     
     try:
-        conn.request("POST", "/openai/v1/chat/completions", payload, headers)
-        res = conn.getresponse()
-        data = res.read()
+        # Timeout süresini artırdık (30 saniye) ki yarıda kesilip beyaz ekran olmasın
+        response = requests.post(url, headers=headers, json=data, timeout=30)
         
-        if res.status == 200:
-            return json.loads(data.decode("utf-8"))['choices'][0]['message']['content']
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        else:
+            st.error(f"API Hatası: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Bağlantı Sorunu: {e}")
         return None
-    except:
-        return None
-    finally:
-        conn.close()
-
-def get_poster_atomic(movie_name):
-    """TMDB'den poster çeker (requests kullanmadan, saf python ile)."""
-    try:
-        if "tmdb" not in st.secrets:
-            return "https://via.placeholder.com/500x750?text=Ayarlar+Eksik"
-            
-        api_key = st.secrets["tmdb"]["api_key"]
-        # Film adını URL formatına çevir (Örn: "Baba 2" -> "Baba%202")
-        safe_name = urllib.parse.quote(movie_name)
-        
-        conn = http.client.HTTPSConnection("api.themoviedb.org")
-        conn.request("GET", f"/3/search/movie?api_key={api_key}&query={safe_name}")
-        
-        res = conn.getresponse()
-        data = res.read()
-        
-        if res.status == 200:
-            json_data = json.loads(data.decode("utf-8"))
-            if json_data['results']:
-                path = json_data['results'][0]['poster_path']
-                if path:
-                    return f"https://image.tmdb.org/t/p/w500{path}"
-        
-        conn.close()
-    except:
-        pass
-        
-    return "https://via.placeholder.com/500x750?text=Resim+Yok"
 
 # --- 3. ARAYÜZ ---
-st.title("🍿 CineMatch AI")
-st.caption("Atom Pro Modu: Hızlı, Posterli ve Güvenli.")
+st.title("🍿 CineMatch AI (Güvenli Mod)")
+st.caption("Veriler doğrudan Yapay Zeka hafızasından çekiliyor.")
 
 col1, col2 = st.columns([1, 2])
 with col1:
-    tur = st.selectbox("Tür", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram", "Romantik", "Gerilim"])
+    tur = st.selectbox("Tür Seç", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram"])
 with col2:
-    detay = st.text_input("Detay", placeholder="Örn: 2024 yapımı, sürpriz sonlu...")
+    detay = st.text_input("Detay Gir", placeholder="Örn: Sürpriz sonlu, uzayda geçen...")
 
 if st.button("FİLM BUL 🚀"):
-    with st.spinner("Filmler ve posterler hazırlanıyor..."):
+    with st.spinner("Yapay zeka analiz ediyor..."):
         
-        json_res = get_groq_json(f"Tür: {tur}, Detay: {detay}")
+        json_str = get_safe_recommendations(f"Tür: {tur}, Detay: {detay}")
         
-        if json_res:
+        if json_str:
             try:
-                # Gelen veriyi JSON'a çevir
-                data = json.loads(json_res)
+                # JSON Temizliği (Bazen yapay zeka başına ```json koyar, siliyoruz)
+                if "```json" in json_str: json_str = json_str.split("```json")[1].split("```")[0].strip()
+                elif "```" in json_str: json_str = json_str.split("```")[1].split("```")[0].strip()
+                
+                data = json.loads(json_str)
                 filmler = data.get("movies", [])
                 
                 if filmler:
                     cols = st.columns(3)
                     for i, film in enumerate(filmler):
                         with cols[i]:
-                            # Posteri hafif yöntemle çek
-                            img_url = get_poster_atomic(film['isim'])
-                            
-                            st.image(img_url, use_container_width=True)
-                            st.markdown(f"<div class='movie-title'>{film['isim']} ({film['yil']})</div>", unsafe_allow_html=True)
-                            st.caption(f"⭐ IMDb: {film['puan']}")
-                            st.info(film['ozet'])
+                            # Film Kartı Tasarımı
+                            st.markdown(f"""
+                            <div class="movie-card">
+                                <div class="movie-title">{film['isim']}</div>
+                                <div class="movie-meta">📅 {film['yil']}</div>
+                                <div class="movie-rating">⭐ {film['puan']}/10</div>
+                                <p style="font-size:14px; margin-top:10px;">{film['ozet']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
                 else:
-                    st.warning("Film bulunamadı.")
+                    st.warning("Uygun film bulunamadı.")
             except Exception as e:
-                st.error("Veri işlenirken hata oluştu.")
-        else:
-            st.error("Bağlantı hatası.")
+                st.error("Veri işleme hatası.")
+                st.code(json_str)
