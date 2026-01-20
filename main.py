@@ -8,6 +8,11 @@ import random
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
+# --- OTURUM HAFIZASI (Session State) ---
+# Kullanıcı sayfayı kapatmadığı sürece gördüğü filmleri burada tutuyoruz
+if 'gosterilen_filmler' not in st.session_state:
+    st.session_state.gosterilen_filmler = []
+
 # --- CSS YÜKLEME ---
 def local_css(file_name):
     try:
@@ -32,16 +37,13 @@ def get_movie_poster(movie_name):
     except:
         return "https://via.placeholder.com/500x750?text=Hata"
 
-# Puanı sayıya çevirip sıralama yapan fonksiyon
 def puana_gore_sirala(filmler_listesi):
     def puan_temizle(film):
         try:
-            # "8.5/10" gibi gelirse sadece "8.5" kısmını al
             puan_str = str(film.get('puan', '0')).split('/')[0].strip()
             return float(puan_str)
         except:
             return 0.0
-    # Büyükten küçüğe sırala (reverse=True)
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
 # --- BAĞLANTILAR ---
@@ -57,84 +59,116 @@ except Exception as e:
 st.markdown("<h1>🍿 CineMatch AI</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #bbb; font-size: 1.2rem;'>Yapay Zeka Destekli Kişisel Sinema Asistanın</p>", unsafe_allow_html=True)
 
-# Değişkenleri başlat
-secilen_tur = ""
-secilen_detay = ""
+# Değişkenler
 tetikleyici = False
-mod_adi = "Manuel Arama"
+final_prompt_tur = ""
+final_prompt_detay = ""
+mod_aciklamasi = ""
 
 with st.sidebar:
     st.markdown("### ⚙️ Ayarlar")
     ad = st.text_input("Adın:", placeholder="İsminiz...", key="user_name")
     
-    # 1. MANUEL FORM
-    with st.form("manuel_form"):
-        st.caption("Kendi kriterlerini belirle:")
-        form_tur = st.selectbox("Tür:", ["Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Suç", "Dram", "Animasyon"])
-        form_detay = st.text_area("Detay:", placeholder="Örn: Sürpriz sonlu...")
-        btn_manuel = st.form_submit_button("🚀 Ara")
-    
-    if btn_manuel:
-        secilen_tur = form_tur
-        secilen_detay = form_detay
-        tetikleyici = True
-        mod_adi = "Manuel"
+    st.caption("Önce tür seç, sonra modu belirle:")
+    secilen_tur = st.selectbox("Tür:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Suç", "Dram", "Animasyon"])
+    secilen_detay = st.text_area("Ekstra Detay (Opsiyonel):", placeholder="Örn: 2020 sonrası olsun...")
 
-    # 2. HIZLI SEÇİMLER (Form dışında)
     st.markdown("---")
-    st.markdown("### ⚡ Hızlı Modlar")
+    st.markdown("### ⚡ Nasıl İzleyeceksin?")
+    
+    # BUTONLAR (Form yerine direkt buton kullanıyoruz ki anında tepki versin)
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("💑 Sevgili", use_container_width=True):
-            secilen_tur = "Romantik Komedi / Dram"
-            secilen_detay = "Sevgiliyle izlenecek, ne çok vıcık vıcık ne de çok sıkıcı. Akıcı, ilişkiler üzerine, keyifli ve kaliteli bir film olsun."
+        # SEVGİLİ MODU
+        if st.button("💑 Sevgiliyle", use_container_width=True):
             tetikleyici = True
-            mod_adi = "Sevgili Modu"
+            mod_aciklamasi = "Sevgili Modu"
+            # Tür "Tümü" ise Romantik yap, değilse seçilen türü koru ama "çiftlere uygun" yap
+            if secilen_tur == "Tümü":
+                final_prompt_tur = "Romantik / Dram / Komedi"
+            else:
+                final_prompt_tur = secilen_tur
+            
+            final_prompt_detay = f"{secilen_detay}. Bu filmi sevgiliyle izleyeceğiz. Çok ağır, aşırı şiddet içeren veya " \
+                                 f"mod düşüren sahneler olmasın. İlişki dinamikleri, akıcılık veya ortak zevke hitap etmesi önemli."
 
+        # RASTGELE MODU
         if st.button("🎲 Rastgele", use_container_width=True):
-            konular = ["Zamanda Yolculuk", "Zihin Oyunları", "Post-Apokaliptik", "90'lar Nostaljisi", "Tek Mekan Gerilimi", "Gerçek Hayat Hikayesi", "Soygun Filmi"]
-            sansli_konu = random.choice(konular)
-            secilen_tur = "Sürpriz"
-            secilen_detay = f"Konusu '{sansli_konu}' olsun. Çok bilinmeyen ama kült bir film olsun."
             tetikleyici = True
-            mod_adi = f"Rastgele ({sansli_konu})"
+            mod_aciklamasi = "Rastgele Modu"
+            konular = ["Plot Twist (Ters Köşe)", "Distopya", "Tek Mekan", "Psikolojik", "Suç/Gizem", "Underdog Hikayesi"]
+            sansli_konu = random.choice(konular)
+            
+            if secilen_tur == "Tümü":
+                final_prompt_tur = "Sürpriz bir tür olsun"
+            else:
+                final_prompt_tur = secilen_tur
+            
+            final_prompt_detay = f"{secilen_detay}. Konusu '{sansli_konu}' olsun. Çok bilinmeyen, gizli kalmış hazinelerden seç."
 
     with col2:
-        if st.button("👨‍👩‍👧‍👦 Aile", use_container_width=True):
-            secilen_tur = "Aile / Animasyon / Macera"
-            secilen_detay = "Ailece izlenecek. Cinsellik ve aşırı şiddet içermeyen, çocukların da anlayabileceği ama yetişkinleri de sıkmayan sıcak bir film."
+        # AİLE MODU
+        if st.button("👨‍👩‍👧‍👦 Aileyle", use_container_width=True):
             tetikleyici = True
-            mod_adi = "Aile Modu"
-    
+            mod_aciklamasi = "Aile Modu"
+            if secilen_tur == "Tümü":
+                final_prompt_tur = "Aile / Macera / Animasyon"
+            else:
+                final_prompt_tur = secilen_tur
+            
+            final_prompt_detay = f"{secilen_detay}. Ailece izlenecek. Kesinlikle +18 cinsellik veya aşırı rahatsız edici vahşet içermemeli. " \
+                                 f"Her yaş grubunun (özellikle ebeveyn ve gençlerin) keyif alabileceği kaliteli yapımlar olsun."
+
+        # MANUEL ARAMA (Normal Buton)
+        if st.button("🚀 Normal Ara", use_container_width=True):
+            tetikleyici = True
+            mod_aciklamasi = "Manuel Arama"
+            final_prompt_tur = secilen_tur
+            final_prompt_detay = secilen_detay
+
     # GEÇMİŞ
     st.markdown("---")
-    if st.button("Geçmişi Göster"):
+    if st.button("Geçmiş Aramalarım"):
         if ad:
             try:
                 data = supabase.table("users").select("*").eq("username", ad).order("created_at", desc=True).limit(5).execute()
                 for satir in data.data:
                     st.info(f"{satir['favorite_genre']}")
+                    st.divider()
             except:
                 st.error("Hata.")
+    
+    # Hafızayı Temizle Butonu
+    if len(st.session_state.gosterilen_filmler) > 0:
+        if st.button("🗑️ Tekrar Hafızasını Sil"):
+            st.session_state.gosterilen_filmler = []
+            st.success("Hafıza temizlendi, artık eski filmleri tekrar önerebilir.")
 
 # --- SONUÇ EKRANI ---
 if tetikleyici and ad:
-    with st.spinner(f"🎬 {mod_adi} çalışıyor... En yüksek puanlılar seçiliyor..."):
+    with st.spinner(f"🎬 {mod_aciklamasi} çalışıyor... ({final_prompt_tur})"):
         
-        # Loglama
+        # 1. Veritabanı Kayıt (Sadece ne arandığını kaydet)
         try:
-            supabase.table("users").insert({"username": ad, "favorite_genre": f"[{mod_adi}] {secilen_tur} - {secilen_detay}"}).execute()
+            log_text = f"[{mod_aciklamasi}] Tür: {final_prompt_tur} | Detay: {final_prompt_detay}"
+            supabase.table("users").insert({"username": ad, "favorite_genre": log_text}).execute()
         except:
             pass
 
-        prompt = f"""
-        Kullanıcı: {ad}
-        Tür: {secilen_tur}
-        Detay: {secilen_detay}
+        # 2. Yasaklı Filmler Listesini Hazırla (Hafıza)
+        yasakli_liste = ", ".join(st.session_state.gosterilen_filmler)
         
-        Bana bu kriterlere uyan tam 6 ADET film öner.
-        ÖNEMLİ: IMDb puanlarını gerçekçi yaz.
+        # 3. Gemini Prompt
+        prompt = f"""
+        Rolün: Dünyanın en iyi film küratörüsün.
+        Kullanıcı: {ad}
+        İstenen Tür: {final_prompt_tur}
+        Özel Bağlam/Detay: {final_prompt_detay}
+        
+        ÖNEMLİ KURAL 1: Şu filmleri daha önce önerdin, LÜTFEN BUNLARI TEKRAR ÖNERME: [{yasakli_liste}]
+        ÖNEMLİ KURAL 2: Bana tam 6 ADET film öner.
+        ÖNEMLİ KURAL 3: IMDb puanları gerçekçi olsun.
         
         Cevabı SADECE şu JSON formatında ver:
         [
@@ -143,7 +177,7 @@ if tetikleyici and ad:
                 "turkce_ad": "Türkçe Adı",
                 "yil": "2023",
                 "puan": "8.8",
-                "neden": "Kısa ve vurucu neden."
+                "neden": "Kullanıcının kriterlerine (özellikle {mod_aciklamasi} moduna) neden tam uyuyor?"
             }}, ...
         ]
         """
@@ -153,10 +187,14 @@ if tetikleyici and ad:
             text_response = response.text.replace('```json', '').replace('```', '').strip()
             filmler_ham = json.loads(text_response)
             
-            # SIRALAMA İŞLEMİ (Burada yapılıyor)
+            # Sıralama
             filmler = puana_gore_sirala(filmler_ham)
             
-            st.success(f"İşte senin için seçtiklerim! (IMDb Puanına Göre Sıralı 📉)")
+            # 4. Gösterilenleri Hafızaya Ekle
+            for f in filmler:
+                st.session_state.gosterilen_filmler.append(f['film_adi'])
+
+            st.success(f"İşte öneriler! (Daha önce önerdiklerimi eledim)")
             st.markdown("---")
             
             for i in range(0, len(filmler), 3):
@@ -168,16 +206,15 @@ if tetikleyici and ad:
                             poster_url = get_movie_poster(film['film_adi'])
                             st.image(poster_url, use_container_width=True)
                             
-                            # Puanı Renkli Gösterme
                             try:
-                                puan_float = float(film['puan'])
-                                renk = "🟢" if puan_float >= 8.0 else "🟡" if puan_float >= 6.5 else "🔴"
+                                p = float(film['puan'])
+                                renk = "🟢" if p >= 8.0 else "🟡" if p >= 6.5 else "🔴"
                             except:
                                 renk = "⭐"
 
                             st.markdown(f"### {film['turkce_ad']}")
                             st.caption(f"{renk} **{film['puan']}** | 📅 {film['yil']}")
-                            st.markdown(f"_{film['neden']}_")
+                            st.info(f"{film['neden']}")
                 st.markdown("<br>", unsafe_allow_html=True)
                 
         except Exception as e:
