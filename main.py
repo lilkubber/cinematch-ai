@@ -2,31 +2,113 @@ import streamlit as st
 from supabase import create_client, Client
 import requests
 import json
+import random
 import time
 from datetime import date, datetime
 import re
 
-# --- 1. SAYFA AYARLARI ---
+# --- 1. SAYFA VE TASARIM AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# CSS Yükleme
-def local_css(file_name):
+# PREMIUM KARANLIK TEMA CSS
+def local_css():
     st.markdown(f"""
     <style>
-    .stButton>button {{ width: 100%; border-radius: 10px; height: 3em; font-weight: bold; }}
+    /* GENEL SAYFA YAPISI (NETFLIX BLACK) */
+    .stApp {{
+        background-color: #141414;
+        color: #e5e5e5;
+    }}
+    
+    /* INPUT ALANLARI */
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div > div {{
+        background-color: #333333;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 4px;
+    }}
+    
+    /* BUTONLAR (NETFLIX RED) */
+    .stButton>button {{
+        background: linear-gradient(180deg, #E50914 0%, #B00610 100%);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        height: 3em;
+        font-weight: bold;
+        font-size: 16px;
+        transition: transform 0.2s;
+    }}
+    .stButton>button:hover {{
+        transform: scale(1.02);
+        box-shadow: 0 0 10px rgba(229, 9, 20, 0.5);
+    }}
+    .stButton>button:disabled {{
+        background: #555;
+        color: #888;
+    }}
+
+    /* PREMIUM PAYWALL KUTUSU (GOLD) */
     .paywall-container {{
-        background: linear-gradient(135deg, #1e1e1e 0%, #3a0000 100%);
-        border: 2px solid #ff4b4b; border-radius: 15px; padding: 30px;
-        text-align: center; color: white; margin: 20px 0;
+        background: linear-gradient(135deg, #000000 0%, #1c1c1c 100%);
+        border: 2px solid #FFD700;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: center;
+        color: white;
+        margin: 30px 0;
+        box-shadow: 0 0 30px rgba(255, 215, 0, 0.2);
+    }}
+    .paywall-header {{
+        font-size: 2.2em;
+        font-weight: 800;
+        color: #FFD700;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }}
+    .paywall-price {{
+        font-size: 3.5em;
+        font-weight: 900;
+        color: #ffffff;
+        text-shadow: 0 0 10px #FFD700;
+        margin: 10px 0;
     }}
     .paywall-btn {{
-        background-color: #ffd700; color: black; padding: 10px 30px;
-        border-radius: 50px; text-decoration: none; font-weight: bold;
+        display: inline-block;
+        background: #FFD700;
+        color: #000;
+        padding: 15px 50px;
+        border-radius: 50px;
+        font-weight: 900;
+        font-size: 1.2em;
+        text-decoration: none;
+        margin-top: 20px;
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+        transition: all 0.3s;
+    }}
+    .paywall-btn:hover {{
+        background: white;
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.6);
+        transform: scale(1.05);
+    }}
+
+    /* SIDEBAR */
+    section[data-testid="stSidebar"] {{
+        background-color: #000000;
+        border-right: 1px solid #333;
+    }}
+    
+    /* FİLM KARTLARI */
+    .movie-card {{
+        background: #1f1f1f;
+        padding: 10px;
+        border-radius: 8px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-local_css("style.css")
+local_css()
 
 # --- 2. VERİTABANI BAĞLANTISI ---
 try:
@@ -37,13 +119,10 @@ except Exception as e:
     st.error(f"Veritabanı hatası: {e}")
     st.stop()
 
-# --- 3. OTURUM YÖNETİMİ (Burayı düzelttim) ---
-if 'user' not in st.session_state:
-    st.session_state.user = None # Giriş yapılmadı
-if 'guest_usage' not in st.session_state:
-    st.session_state.guest_usage = 0 # Misafir sayacı 0'dan başlar
-if 'gosterilen_filmler' not in st.session_state:
-    st.session_state.gosterilen_filmler = []
+# --- 3. OTURUM YÖNETİMİ ---
+if 'user' not in st.session_state: st.session_state.user = None
+if 'guest_usage' not in st.session_state: st.session_state.guest_usage = 0
+if 'gosterilen_filmler' not in st.session_state: st.session_state.gosterilen_filmler = []
 
 # --- 4. YARDIMCI FONKSİYONLAR ---
 def is_valid_email(email):
@@ -54,7 +133,7 @@ def login_user(email, password):
         response = supabase.table("users").select("*").eq("email", email).eq("password", password).execute()
         if response.data:
             user_data = response.data[0]
-            # Haftalık kontrol
+            # Haftalık sıfırlama kontrolü
             try:
                 last = datetime.strptime(str(user_data['last_active']), "%Y-%m-%d").date()
                 if (date.today() - last).days >= 7:
@@ -63,7 +142,7 @@ def login_user(email, password):
             except: pass
             
             st.session_state.user = user_data
-            st.toast(f"Hoş geldin!")
+            st.toast(f"Hoş geldin!", icon="👋")
             time.sleep(0.5)
             st.rerun()
         else:
@@ -89,18 +168,17 @@ def register_user(username, email, password):
         st.error(f"Kayıt hatası: {e}")
 
 def check_limits():
-    """Limit kontrolü - Hata ayıklama için print ekledim"""
-    # 1. Giriş yapmış kullanıcı
+    """Limit Kontrolü"""
+    # 1. Premium
+    if st.session_state.user and st.session_state.user['is_premium']: return True
+    
+    # 2. Standart Üye (3 Hak)
     if st.session_state.user:
-        if st.session_state.user['is_premium']: return True
         return st.session_state.user['daily_usage'] < 3
     
-    # 2. Misafir (Giriş yapmamış)
-    else:
-        # Eğer guest_usage session'da yoksa 0 yap
-        if 'guest_usage' not in st.session_state:
-            st.session_state.guest_usage = 0
-        return st.session_state.guest_usage < 3
+    # 3. Misafir (3 Hak)
+    if 'guest_usage' not in st.session_state: st.session_state.guest_usage = 0
+    return st.session_state.guest_usage < 3
 
 def update_usage():
     if st.session_state.user:
@@ -120,68 +198,102 @@ def get_movie_poster(movie_name):
         return "https://via.placeholder.com/500x750?text=No+Img"
     except: return "https://via.placeholder.com/500x750?text=Error"
 
-# --- 5. SIDEBAR ---
+# --- 5. SIDEBAR (GİRİŞ & PROFİL) ---
 with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/2503/2503508.png", width=50)
+    st.markdown("### 🍿 CineMatch AI")
+    
     if st.session_state.user:
         user = st.session_state.user
-        st.header(f"👤 {user['username']}")
-        if user['is_premium']: st.success("🌟 PREMIUM")
+        st.divider()
+        st.write(f"👤 **{user['username']}**")
+        
+        if user['is_premium']:
+            st.success("💎 PREMIUM ÜYE")
         else:
             kalan = 3 - user['daily_usage']
-            st.info(f"Kalan Hak: {kalan}/3")
-        if st.button("Çıkış"):
+            st.info(f"Haftalık Kalan: {kalan}/3")
+            st.progress(user['daily_usage'] / 3)
+        
+        if st.button("Çıkış Yap"):
             st.session_state.user = None
             st.rerun()
     else:
-        st.header("👤 Giriş / Kayıt")
-        t1, t2 = st.tabs(["Giriş", "Kayıt"])
-        with t1:
+        st.divider()
+        st.write("👤 **Giriş / Kayıt**")
+        tab1, tab2 = st.tabs(["Giriş", "Kayıt"])
+        with tab1:
             el = st.text_input("E-Posta", key="l_e")
             pl = st.text_input("Şifre", type="password", key="l_p")
-            if st.button("Giriş"): login_user(el, pl)
-        with t2:
-            ur = st.text_input("Ad", key="r_u")
+            if st.button("Giriş Yap"): login_user(el, pl)
+        with tab2:
+            ur = st.text_input("Kullanıcı Adı", key="r_u")
             er = st.text_input("E-Posta", key="r_e")
             pr = st.text_input("Şifre", type="password", key="r_p")
-            if st.button("Kayıt"): register_user(ur, er, pr)
+            if st.button("Kayıt Ol"): register_user(ur, er, pr)
     
-    st.markdown("---")
+    # PREMIUM REKLAM KUTUSU (Sidebar)
     if not (st.session_state.user and st.session_state.user['is_premium']):
-        st.info("💎 Premium: $0.99 (Sınırsız)")
+        st.markdown("---")
+        st.markdown("""
+        <div style="background: linear-gradient(45deg, #FFD700, #FDB931); padding: 15px; border-radius: 8px; color: black; text-align: center;">
+            <strong style="font-size: 1.2em;">👑 Premium Ol</strong>
+            <p style="margin: 5px 0; font-size: 0.9em;">Sınırsız Film, Özel Modlar</p>
+            <h3 style="margin: 0;">$0.99</h3>
+        </div>
+        """, unsafe_allow_html=True)
 
 # --- 6. ANA EKRAN ---
-st.title("🍿 CineMatch AI")
+
+# Başlık
+st.markdown("<h1 style='text-align: center; color: #E50914; font-size: 3em; font-weight: 900;'>CineMatch AI</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #bbb; margin-bottom: 40px;'>Yapay Zeka Destekli Kişisel Sinema Küratörün</p>", unsafe_allow_html=True)
 
 izin_var = check_limits()
 
+# --- PAYWALL (LİMİT DOLUNCA) ---
 if not izin_var:
-    st.markdown("""
+    st.markdown(
+        """
         <div class='paywall-container'>
-            <h2>🚧 Deneme Hakkınız Bitti!</h2>
-            <p>Haftalık 3 hakkınızı doldurdunuz.</p>
+            <div class='paywall-header'>🚧 İZLEME KEYFİ YARIM KALMASIN</div>
+            <p style='font-size: 1.2em; color: #ccc;'>3 filmlik ücretsiz deneme hakkınızı doldurdunuz.</p>
             <div class='paywall-price'>$0.99</div>
-            <a href='https://www.buymeacoffee.com' target='_blank' class='paywall-btn'>PREMIUM AL</a>
+            <p style='color: #FFD700; font-weight: bold;'>BİR KAHVE PARASINA SINIRSIZ ERİŞİM</p>
+            <a href='https://www.buymeacoffee.com' target='_blank' class='paywall-btn'>🚀 PREMIUM HESABA GEÇ</a>
+            <br><br>
+            <small style='color: #666;'>Giriş yaptıysanız haftaya haklarınız yenilenir.</small>
         </div>
-        """, unsafe_allow_html=True)
-    st.stop()
+        """, unsafe_allow_html=True
+    )
+    st.stop() # Kodun geri kalanını durdur
 
 # --- ARAMA FORMU ---
 col_mod = st.columns(5)
-secilen_mod = st.radio("Mod:", ["Normal", "💑 Sevgili", "👨‍👩‍👧‍👦 Aile", "🍕 Arkadaş", "🧘 Yalnız"], horizontal=True)
+secilen_mod = st.radio("Mod Seçimi:", ["Normal", "💑 Sevgili", "👨‍👩‍👧‍👦 Aile", "🍕 Arkadaş", "🧘 Yalnız"], horizontal=True, label_visibility="collapsed")
 
-secilen_tur = st.selectbox("Tür:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Dram"])
-secilen_detay = st.text_area("Detay:", placeholder="Örn: 2023 yapımı, sürpriz sonlu...")
+col_sel1, col_sel2 = st.columns([1, 2])
+with col_sel1:
+    secilen_tur = st.selectbox("Tür", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Dram", "Suç"])
+with col_sel2:
+    secilen_detay = st.text_input("Detay (Ne hissediyorsun?)", placeholder="Örn: 2023 yapımı, beyin yakan, sonu sürprizli...")
 
-if st.button("🚀 Film Bul", use_container_width=True):
-    with st.spinner("Aranıyor..."):
+if st.button("FİLM ÖNERİSİ AL", use_container_width=True):
+    with st.spinner("Yapay zeka veritabanını tarıyor..."):
         try:
+            # 🚀 KRİTİK DÜZELTME: Senin listende kesin olan model adını kullanıyoruz
+            # 404 hatasını çözen sihirli satır burası 👇
+            model_name = "gemini-2.0-flash-lite-preview-02-05"
+            
             api_key = st.secrets["google"]["api_key"]
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            
+            yasakli = ", ".join(st.session_state.gosterilen_filmler)
             
             prompt = f"""
             Role: Movie curator. Language: Turkish.
             Genre: {secilen_tur}. Details: {secilen_detay}. Context: {secilen_mod}.
-            Ignore: [{", ".join(st.session_state.gosterilen_filmler)}].
+            Ignore: [{yasakli}].
             Return EXACTLY 3 movies. JSON Format:
             [{{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }}]
             """
@@ -199,17 +311,36 @@ if st.button("🚀 Film Bul", use_container_width=True):
                     st.session_state.gosterilen_filmler.append(film['film_adi'])
                     with cols[i]:
                         st.image(get_movie_poster(film['film_adi']), use_container_width=True)
-                        st.subheader(film['film_adi'])
-                        st.caption(f"⭐ {film['puan']}")
+                        st.markdown(f"### {film['film_adi']}")
+                        st.markdown(f"**⭐ {film['puan']}** | 📅 {film['yil']}")
                         st.info(film['neden'])
                 
                 if not st.session_state.user:
-                    st.toast(f"Misafir hakkı: {3 - st.session_state.guest_usage} kaldı!")
+                    kalan = 3 - st.session_state.guest_usage
+                    st.toast(f"Deneme hakkı: {kalan} kaldı!", icon="⏳")
             
             elif resp.status_code == 429:
-                st.error("Sunucu yoğun (429). Lütfen API Key kotanızı kontrol edin.")
+                st.error("Sunucu çok yoğun (Kota Doldu). Lütfen 1 dakika bekleyin veya Premium API kullanın.")
+            elif resp.status_code == 404:
+                 # YEDEK PLAN: Eğer 2.0-flash bulunamazsa gemini-pro (Eski model) dene
+                st.warning("Model bulunamadı, yedek sunucuya bağlanılıyor...")
+                fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+                resp_fb = requests.post(fallback_url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]})
+                if resp_fb.status_code == 200:
+                    content = resp_fb.json()['candidates'][0]['content']['parts'][0]['text']
+                    filmler = json.loads(content.replace('```json', '').replace('```', '').strip())
+                    update_usage()
+                    cols = st.columns(3)
+                    for i, film in enumerate(filmler):
+                        st.session_state.gosterilen_filmler.append(film['film_adi'])
+                        with cols[i]:
+                            st.image(get_movie_poster(film['film_adi']), use_container_width=True)
+                            st.markdown(f"### {film['film_adi']}")
+                            st.info(film['neden'])
+                else:
+                    st.error(f"Yedek sunucu da yanıt vermedi. Hata: {resp_fb.status_code}")
             else:
-                st.error(f"Hata Kodu: {resp.status_code} - {resp.text}")
+                st.error(f"Sunucu Hatası: {resp.status_code} - {resp.text}")
                 
         except Exception as e:
             st.error(f"Bir hata oluştu: {e}")
