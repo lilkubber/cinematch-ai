@@ -2,7 +2,6 @@ import streamlit as st
 from supabase import create_client, Client
 import requests
 import json
-import random
 import time
 from datetime import date, datetime
 import re
@@ -58,52 +57,8 @@ except Exception as e:
 if 'user' not in st.session_state: st.session_state.user = None
 if 'guest_usage' not in st.session_state: st.session_state.guest_usage = 0
 if 'gosterilen_filmler' not in st.session_state: st.session_state.gosterilen_filmler = []
-# Bulunan modeli hafızada tutalım ki her seferinde aramasın
-if 'active_model_name' not in st.session_state: st.session_state.active_model_name = None
 
-# --- 4. KRİTİK FONKSİYON: OTOMATİK MODEL SEÇİCİ ---
-def get_best_available_model(api_key):
-    """
-    Bu fonksiyon API Key'in yetkili olduğu modelleri listeler
-    ve 'flash' ismini içeren ilk modeli seçer. Böylece 404 hatası engellenir.
-    """
-    if st.session_state.active_model_name:
-        return st.session_state.active_model_name
-
-    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        resp = requests.get(list_url)
-        if resp.status_code == 200:
-            models = resp.json().get('models', [])
-            
-            # 1. Öncelik: Adında 'flash' geçen modeller (Hızlı ve Ucuz)
-            for m in models:
-                name = m['name'].replace('models/', '')
-                if 'generateContent' in m['supportedGenerationMethods'] and 'flash' in name:
-                    st.session_state.active_model_name = name
-                    return name
-            
-            # 2. Öncelik: Adında 'pro' geçen modeller
-            for m in models:
-                name = m['name'].replace('models/', '')
-                if 'generateContent' in m['supportedGenerationMethods'] and 'pro' in name:
-                    st.session_state.active_model_name = name
-                    return name
-            
-            # 3. Öncelik: Herhangi bir model
-            for m in models:
-                name = m['name'].replace('models/', '')
-                if 'generateContent' in m['supportedGenerationMethods']:
-                    st.session_state.active_model_name = name
-                    return name
-                    
-    except Exception as e:
-        print(f"Model listeleme hatası: {e}")
-    
-    # Hiçbir şey bulamazsa en standart olana dön (Fallback)
-    return "gemini-1.5-flash"
-
-# --- 5. DİĞER YARDIMCI FONKSİYONLAR ---
+# --- 4. YARDIMCI FONKSİYONLAR ---
 def is_valid_email(email):
     return re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email)
 
@@ -168,6 +123,34 @@ def get_movie_poster(movie_name):
         return "https://via.placeholder.com/500x750?text=No+Img"
     except: return "https://via.placeholder.com/500x750?text=Error"
 
+# --- 5. GROQ API ÇAĞRISI (ÜCRETSİZ & HIZLI) ---
+def get_groq_recommendation(prompt_text):
+    """
+    Groq API kullanarak süper hızlı ve ücretsiz yanıt alır.
+    Google Cloud blokelerine takılmaz.
+    """
+    groq_key = st.secrets["groq"]["api_key"]
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {groq_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "llama-3.3-70b-versatile", # Meta'nın en güçlü ve ücretsiz modeli
+        "messages": [{"role": "user", "content": prompt_text}],
+        "temperature": 0.7,
+        "response_format": {"type": "json_object"} # JSON Zorunlu
+    }
+    
+    response = requests.post(url, headers=headers, json=data)
+    
+    if response.status_code == 200:
+        return response.json()['choices'][0]['message']['content']
+    else:
+        raise Exception(f"Groq Hatası: {response.status_code} - {response.text}")
+
 # --- 6. SIDEBAR ---
 with st.sidebar:
     st.markdown("### 🍿 CineMatch AI")
@@ -228,32 +211,34 @@ secilen_tur = st.selectbox("Tür:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerili
 secilen_detay = st.text_input("Detay:", placeholder="Örn: Sürpriz sonlu, 2023 yapımı...")
 
 if st.button("FİLM BUL 🚀", use_container_width=True):
-    with st.spinner("Model aranıyor ve film seçiliyor..."):
+    with st.spinner("Yapay zeka analiz ediyor..."):
         try:
-            api_key = st.secrets["google"]["api_key"]
-            
-            # --- OTOMATİK MODEL SEÇİMİ (404 ÇÖZÜMÜ) ---
-            target_model = get_best_available_model(api_key)
-            # ------------------------------------------
-            
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
-            
             yasakli = ", ".join(st.session_state.gosterilen_filmler)
             prompt = f"""
             Role: Movie curator. Language: Turkish.
             Genre: {secilen_tur}. Details: {secilen_detay}. Context: {secilen_mod}.
             Ignore these: [{yasakli}].
-            Return EXACTLY 3 movies. JSON Format:
-            [{{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }}]
+            Return EXACTLY 3 movies. JSON Format ONLY:
+            {{ "movies": [ {{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }} ] }}
             """
             
-            resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]})
+            # --- GROQ API ÇAĞRISI ---
+            json_str = get_groq_recommendation(prompt)
             
-            if resp.status_code == 200:
-                content = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                filmler = json.loads(content.replace('```json', '').replace('```', '').strip())
-                update_usage()
+            # JSON Temizleme
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0].strip()
                 
+            data = json.loads(json_str)
+            
+            if isinstance(data, list): filmler = data
+            elif "movies" in data: filmler = data["movies"]
+            else: filmler = []
+
+            if filmler:
+                update_usage()
                 cols = st.columns(3)
                 for i, film in enumerate(filmler):
                     st.session_state.gosterilen_filmler.append(film['film_adi'])
@@ -262,10 +247,8 @@ if st.button("FİLM BUL 🚀", use_container_width=True):
                         st.markdown(f"**{film['film_adi']}** ({film['yil']})")
                         st.caption(f"⭐ {film['puan']}")
                         st.info(film['neden'])
-            elif resp.status_code == 429:
-                st.error("⚠️ Kota doldu (429). Lütfen 1 dakika bekleyin.")
             else:
-                st.error(f"Hata ({target_model}): {resp.status_code}")
-                
+                st.error("Yapay zeka film bulamadı.")
+
         except Exception as e:
-            st.error(f"Bağlantı hatası: {e}")
+            st.error(f"Bir hata oluştu: {e}")
