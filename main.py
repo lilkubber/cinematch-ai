@@ -43,7 +43,7 @@ translations = {
         "btn_clear": "🗑️ Hafızayı Temizle",
         "msg_warning_name": "Lütfen önce sol menüden adını yaz.",
         "msg_success_history": "Hafıza temizlendi.",
-        "msg_searching": "Film seçiliyor...",
+        "msg_searching": "Film seçiliyor (Yedekli Sistem)...",
         "res_platform": "Platform:",
         "res_trailer": "▶️ Fragman",
         "res_watch": "🍿 Hemen İzle",
@@ -225,53 +225,46 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. AKILLI MODEL SEÇİCİ (OTOMATİK MODEL BULUCU) ---
+# --- 4. AKILLI VE YEDEKLİ MODEL SEÇİCİ ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # Mevcut modelleri listele ve en iyisini seç
-    mevcut_modeller = []
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                mevcut_modeller.append(m.name)
-    except:
-        pass
-
-    # Öncelik sırasına göre model ara
-    secilen_model_adi = "models/gemini-2.0-flash" # Varsayılan
-
-    # 1. Öncelik: Varsa 1.5 Flash (En Kararlı)
-    if "models/gemini-1.5-flash" in mevcut_modeller:
-        secilen_model_adi = "models/gemini-1.5-flash"
-    # 2. Öncelik: Yoksa Latest Flash
-    elif "models/gemini-flash-latest" in mevcut_modeller:
-        secilen_model_adi = "models/gemini-flash-latest"
-    # 3. Öncelik: O da yoksa 2.0 Flash
-    elif "models/gemini-2.0-flash" in mevcut_modeller:
-        secilen_model_adi = "models/gemini-2.0-flash"
-    # 4. Hiçbiri yoksa listedeki ilk 'flash' geçen modeli al
-    else:
-        for m in mevcut_modeller:
-            if "flash" in m:
-                secilen_model_adi = m
-                break
-    
-    # Modeli Başlat
-    model = genai.GenerativeModel(secilen_model_adi, generation_config={"response_mime_type": "application/json"})
-
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
+
+# Bu fonksiyon, sırayla modelleri dener. Biri hata verirse diğerine geçer.
+def generate_with_fallback(prompt_text):
+    # Sırayla denenecek modeller listesi
+    # 1. Lite (Hızlı, Kotası yüksek)
+    # 2. Pro (Eski ama sağlam, 404 vermez)
+    candidates = [
+        "models/gemini-2.0-flash-lite-preview-02-05",
+        "models/gemini-2.0-flash-lite",
+        "models/gemini-pro"
+    ]
+    
+    last_error = None
+    
+    for model_name in candidates:
+        try:
+            # Modeli seç ve dene
+            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            response = model.generate_content(prompt_text)
+            return response # Başarılıysa sonucu döndür
+        except Exception as e:
+            last_error = e
+            time.sleep(1) # Kısa bir bekleme yapıp sonraki modele geç
+            continue
+            
+    # Hiçbiri çalışmazsa hatayı fırlat
+    raise last_error
 
 # --- 5. ARAYÜZ MANTIK ---
 with st.sidebar:
     selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
     t = translations[selected_lang]
-    
-    # Hangi modeli kullandığımızı göster (Debug için)
-    # st.caption(f"🤖 Model: {secilen_model_adi.split('/')[-1]}")
 
 st.markdown(f"<h1>🍿 {t['title']}</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align: center; color: #bbb; font-size: 1.2rem;'>{t['subtitle']}</p>", unsafe_allow_html=True)
@@ -388,15 +381,8 @@ if tetikleyici and ad:
         """
         
         try:
-            # Hata yakalama bloğu (429 gelirse otomatik bekle ve tekrar dene)
-            try:
-                response = model.generate_content(prompt)
-            except Exception as e:
-                if "429" in str(e):
-                    time.sleep(4) # 4 saniye bekle
-                    response = model.generate_content(prompt)
-                else:
-                    raise e
+            # BURADA FARKLI BİR YÖNTEM KULLANIYORUZ: FALLBACK FONKSİYONU
+            response = generate_with_fallback(prompt)
 
             text_response = response.text.replace('```json', '').replace('```', '').strip()
             filmler_ham = json.loads(text_response)
@@ -439,7 +425,7 @@ if tetikleyici and ad:
                 st.markdown("<br>", unsafe_allow_html=True)
                 
         except Exception as e:
-            st.error(f"Hata: {e}")
+            st.error(f"Hata oluştu (Tüm modeller denendi): {e}")
 
 elif tetikleyici and not ad:
     st.warning(t['msg_warning_name'])
