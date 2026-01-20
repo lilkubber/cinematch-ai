@@ -9,7 +9,7 @@ from datetime import date, datetime
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# CSS Yükleme (Tasarım)
+# CSS Yükleme (Tasarım ve Paywall)
 def local_css(file_name):
     st.markdown(f"""
     <style>
@@ -17,19 +17,46 @@ def local_css(file_name):
         width: 100%;
         border-radius: 10px;
         height: 3em;
+        font-weight: bold;
     }}
-    .premium-box {{
-        padding: 20px;
+    /* PREMIUM KUTUSU TASARIMI */
+    .paywall-container {{
+        background: linear-gradient(135deg, #1e1e1e 0%, #3a0000 100%);
+        border: 2px solid #ff4b4b;
+        border-radius: 15px;
+        padding: 30px;
+        text-align: center;
+        color: white;
+        margin: 20px 0;
+        box-shadow: 0 0 20px rgba(255, 75, 75, 0.3);
+    }}
+    .paywall-header {{
+        font-size: 2em;
+        font-weight: bold;
+        color: #ff4b4b;
+        margin-bottom: 10px;
+    }}
+    .paywall-price {{
+        font-size: 2.5em;
+        font-weight: 800;
+        color: #ffd700;
+        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+    }}
+    .paywall-btn {{
+        display: inline-block;
         background-color: #ffd700;
         color: black;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 20px;
+        padding: 15px 40px;
+        border-radius: 50px;
+        font-weight: bold;
+        font-size: 1.2em;
+        text-decoration: none;
+        margin-top: 20px;
+        transition: transform 0.2s;
     }}
-    .limit-info {{
-        font-size: 0.8em;
-        color: #666;
-        text-align: center;
+    .paywall-btn:hover {{
+        transform: scale(1.05);
+        box-shadow: 0 0 15px #ffd700;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -42,225 +69,222 @@ try:
     key = st.secrets["supabase"]["key"]
     supabase: Client = create_client(url, key)
 except Exception as e:
-    st.error("Veritabanı bağlantı hatası. Lütfen Secrets ayarlarını kontrol et.")
+    st.error("Veritabanı hatası.")
     st.stop()
 
 # --- 3. OTURUM YÖNETİMİ ---
 if 'user' not in st.session_state:
-    st.session_state.user = None # Giriş yapmış kullanıcı bilgisi
+    st.session_state.user = None
+if 'guest_usage' not in st.session_state:
+    st.session_state.guest_usage = 0
 if 'gosterilen_filmler' not in st.session_state:
     st.session_state.gosterilen_filmler = []
 
-# --- 4. YARDIMCI FONKSİYONLAR ---
+# --- 4. FONKSİYONLAR ---
 
 def login_user(username, password):
-    """Kullanıcı girişi yapar ve haftalık limiti kontrol eder."""
     try:
         response = supabase.table("users").select("*").eq("username", username).eq("password", password).execute()
         if response.data:
             user_data = response.data[0]
-            
-            # --- HAFTALIK SIFIRLAMA MANTIĞI ---
-            bugun = date.today()
-            # Veritabanından gelen tarihi (YYYY-MM-DD) al
-            last_active_str = str(user_data['last_active']) 
-            try:
-                last_active_date = datetime.strptime(last_active_str, "%Y-%m-%d").date()
-            except:
-                last_active_date = bugun # Hata olursa bugünü baz al
-            
-            # Kaç gün geçmiş?
-            gun_farki = (bugun - last_active_date).days
-            
-            # Eğer 7 gün veya daha fazla geçmişse hakları fulle
-            if gun_farki >= 7:
-                supabase.table("users").update({"daily_usage": 0, "last_active": str(bugun)}).eq("id", user_data['id']).execute()
-                user_data['daily_usage'] = 0
-                user_data['last_active'] = str(bugun)
-                st.toast("📅 Yeni hafta! Hakların sıfırlandı.")
-            
+            check_weekly_reset(user_data) # Haftalık sıfırlama kontrolü
             st.session_state.user = user_data
-            st.success(f"Hoş geldin, {username}!")
-            time.sleep(1)
+            st.toast(f"Hoş geldin, {username}!")
+            time.sleep(0.5)
             st.rerun()
         else:
-            st.error("Kullanıcı adı veya şifre hatalı.")
+            st.error("Hatalı bilgi.")
     except Exception as e:
-        st.error(f"Giriş hatası: {e}")
+        st.error(f"Hata: {e}")
 
 def register_user(username, password):
-    """Yeni kullanıcı kaydeder."""
     try:
         check = supabase.table("users").select("*").eq("username", username).execute()
         if check.data:
-            st.warning("Bu kullanıcı adı zaten alınmış.")
+            st.warning("Bu isim alınmış.")
         else:
             supabase.table("users").insert({
-                "username": username, 
-                "password": password,
-                "is_premium": False,
-                "daily_usage": 0,
-                "last_active": str(date.today()) # Kayıt tarihi başlangıçtır
+                "username": username, "password": password, "is_premium": False, "daily_usage": 0, "last_active": str(date.today())
             }).execute()
-            st.success("Kayıt başarılı! Şimdi giriş yapabilirsin.")
+            st.success("Kayıt tamam! Giriş yapabilirsin.")
     except Exception as e:
-        st.error(f"Kayıt hatası: {e}")
+        st.error(f"Hata: {e}")
+
+def check_weekly_reset(user_data):
+    bugun = date.today()
+    try:
+        last_active = datetime.strptime(str(user_data['last_active']), "%Y-%m-%d").date()
+    except:
+        last_active = bugun
+    
+    if (bugun - last_active).days >= 7:
+        supabase.table("users").update({"daily_usage": 0, "last_active": str(bugun)}).eq("id", user_data['id']).execute()
+        user_data['daily_usage'] = 0
 
 def check_limits():
-    """Limit kontrolü yapar."""
-    user = st.session_state.user
-    if not user: return False
+    """Limit kontrolü - DÖNÜŞ DEĞERİ: (İzin Var mı?, Limit Sebebi)"""
+    # 1. Premium Üye -> Sınırsız
+    if st.session_state.user and st.session_state.user['is_premium']:
+        return True, "premium"
     
-    if user['is_premium']:
-        return True
-    
-    # LİMİT: Haftada 3 Hak
-    limit = 3
-    if user['daily_usage'] < limit:
-        return True
+    # 2. Standart Üye -> Haftalık 3 Hak
+    if st.session_state.user and not st.session_state.user['is_premium']:
+        if st.session_state.user['daily_usage'] < 3:
+            return True, "member"
+        else:
+            return False, "member_limit"
+
+    # 3. Misafir -> Toplam 3 Hak
+    if st.session_state.guest_usage < 3:
+        return True, "guest"
     else:
-        return False
+        return False, "guest_limit"
 
 def update_usage():
-    """Kullanım sayısını artırır."""
-    user = st.session_state.user
-    if user:
-        new_count = user['daily_usage'] + 1
-        # Tarihi güncellemiyoruz! Tarih sadece sıfırlanacağı zaman (7 gün sonra) değişir.
-        supabase.table("users").update({"daily_usage": new_count}).eq("id", user['id']).execute()
+    if st.session_state.user:
+        new_count = st.session_state.user['daily_usage'] + 1
+        supabase.table("users").update({"daily_usage": new_count}).eq("id", st.session_state.user['id']).execute()
         st.session_state.user['daily_usage'] = new_count
+    else:
+        st.session_state.guest_usage += 1
 
-# Film Afişi
 def get_movie_poster(movie_name):
     try:
         api_key = st.secrets["tmdb"]["api_key"]
         url = f"https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={movie_name}"
         res = requests.get(url).json()
-        if res['results']:
-            return f"https://image.tmdb.org/t/p/w500{res['results'][0]['poster_path']}"
+        if res['results']: return f"https://image.tmdb.org/t/p/w500{res['results'][0]['poster_path']}"
         return "https://via.placeholder.com/500x750?text=No+Img"
-    except:
-        return "https://via.placeholder.com/500x750?text=Error"
+    except: return "https://via.placeholder.com/500x750?text=Error"
 
-# --- 5. ANA EKRAN MANTIĞI ---
-
-if st.session_state.user is None:
-    st.markdown("<h1 style='text-align: center;'>🍿 CineMatch AI</h1>", unsafe_allow_html=True)
-    st.info("Film önerisi almak için lütfen giriş yapın.")
-    
-    tab1, tab2 = st.tabs(["Giriş Yap", "Kayıt Ol"])
-    with tab1:
-        l_user = st.text_input("Kullanıcı Adı", key="l_u")
-        l_pass = st.text_input("Şifre", type="password", key="l_p")
-        if st.button("Giriş Et"):
-            if l_user and l_pass: login_user(l_user, l_pass)
-            else: st.warning("Doldurunuz.")
-    with tab2:
-        r_user = st.text_input("Kullanıcı Adı Seç", key="r_u")
-        r_pass = st.text_input("Şifre Seç", type="password", key="r_p")
-        if st.button("Kayıt Ol"):
-            if r_user and r_pass: register_user(r_user, r_pass)
-            else: st.warning("Doldurunuz.")
-
-else:
-    user = st.session_state.user
-    
-    # Sidebar
-    with st.sidebar:
-        st.markdown(f"### 👤 {user['username']}")
-        
+# --- 5. SIDEBAR (Üyelik Paneli) ---
+with st.sidebar:
+    if st.session_state.user:
+        user = st.session_state.user
+        st.header(f"👤 {user['username']}")
         if user['is_premium']:
             st.success("🌟 PREMIUM")
-            st.write("Sınırsız Erişim")
         else:
             st.info("STANDART")
             kalan = 3 - user['daily_usage']
-            st.write(f"Haftalık Hak: **{kalan}/3**")
             st.progress(user['daily_usage'] / 3)
-            
-            # Kalan gün hesaplama
-            last_active_date = datetime.strptime(str(user['last_active']), "%Y-%m-%d").date()
-            gecen_gun = (date.today() - last_active_date).days
-            kalan_gun = 7 - gecen_gun
-            if kalan_gun < 0: kalan_gun = 0
-            
-            st.caption(f"Yenilenmeye: {kalan_gun} gün var")
-            
-            if kalan == 0:
-                st.error("Bu haftalık hakkın bitti!")
-                st.markdown(
-                    """
-                    <div class='premium-box'>
-                        <h3>🚀 Premium Al</h3>
-                        <p>Beklemek istemiyor musun?</p>
-                        <p>Sadece $1 (35 TL)</p>
-                        <a href='https://www.buymeacoffee.com' target='_blank' style='display:block; background:black; color:white; padding:10px; border-radius:5px; text-decoration:none; font-weight:bold;'>HEMEN GEÇ</a>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-
+            st.caption(f"Haftalık Hak: {kalan}/3")
+        
         if st.button("Çıkış Yap"):
             st.session_state.user = None
             st.rerun()
+    else:
+        st.header("👤 Giriş / Kayıt")
+        tab1, tab2 = st.tabs(["Giriş", "Kayıt"])
+        with tab1:
+            u = st.text_input("Kullanıcı Adı", key="l_u")
+            p = st.text_input("Şifre", type="password", key="l_p")
+            if st.button("Giriş Yap"): login_user(u, p)
+        with tab2:
+            ru = st.text_input("Kullanıcı Adı", key="r_u")
+            rp = st.text_input("Şifre", type="password", key="r_p")
+            if st.button("Kayıt Ol"): register_user(ru, rp)
 
-    st.markdown("<h1>🍿 CineMatch AI</h1>", unsafe_allow_html=True)
-    
-    secilen_tur = st.selectbox("Tür:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Dram"])
-    secilen_detay = st.text_area("Detay:", placeholder="Örn: Sürpriz sonlu olsun...")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        btn_normal = st.button("🚀 Normal Ara", use_container_width=True)
-    with col2:
-        btn_couple = st.button("💑 Sevgili Modu (Pro)", use_container_width=True, disabled=not user['is_premium'])
-        if not user['is_premium']: st.caption("🔒 Premium'a özel")
+# --- 6. ANA EKRAN ---
 
-    if btn_normal or (btn_couple and user['is_premium']):
-        if not check_limits():
-            st.error("🚨 Bu haftalık 3 arama hakkın doldu!")
-            st.info(f"Hakların {kalan_gun} gün sonra yenilenecek. Veya $1 verip beklemeden sınırsız yapabilirsin.")
-        else:
-            with st.spinner("Yapay zeka film seçiyor..."):
-                try:
-                    # REST API (1.5 Flash)
-                    api_key = st.secrets["google"]["api_key"]
-                    model_name = "gemini-1.5-flash"
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-                    
-                    yasakli = ", ".join(st.session_state.gosterilen_filmler)
-                    prompt_context = "COUPLE MODE: Safe for date night." if btn_couple else "NORMAL MODE."
-                    
-                    prompt = f"""
-                    Role: Movie curator. Language: Turkish.
-                    Genre: {secilen_tur}. Details: {secilen_detay}. {prompt_context}
-                    Ignore: [{yasakli}].
-                    Return EXACTLY 3 movies. JSON Format:
-                    [{{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }}]
-                    """
-                    
-                    data = {"contents": [{"parts": [{"text": prompt}]}]}
-                    headers = {"Content-Type": "application/json"}
-                    
-                    resp = requests.post(url, headers=headers, json=data)
-                    
-                    if resp.status_code == 200:
-                        content = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                        filmler = json.loads(content.replace('```json', '').replace('```', '').strip())
-                        
-                        update_usage()
-                        
-                        cols = st.columns(3)
-                        for i, film in enumerate(filmler):
-                            st.session_state.gosterilen_filmler.append(film['film_adi'])
-                            with cols[i]:
-                                st.image(get_movie_poster(film['film_adi']), use_container_width=True)
-                                st.subheader(film['film_adi'])
-                                st.caption(f"⭐ {film['puan']} | 📅 {film['yil']}")
-                                st.info(film['neden'])
-                    elif resp.status_code == 429:
-                        st.error("Sunucu çok yoğun (429). 1 Dakika bekleyip tekrar dene.")
+st.title("🍿 CineMatch AI")
+
+# LİMİT KONTROLÜ
+izin_var, durum = check_limits()
+
+# --- BURASI YENİ: PAYWALL EKRANI ---
+if not izin_var:
+    # Limit dolduysa arama çubuğunu gizle veya kilitle, yerine bu kutuyu göster
+    st.markdown(
+        """
+        <div class='paywall-container'>
+            <div class='paywall-header'>🚧 Ücretsiz Hakkınız Bitti!</div>
+            <p style='font-size: 1.2em;'>3 filmlik deneme sürenizi doldurdunuz.</p>
+            <p>Aradığınız o efsane filmi bulmak için beklemeyin.</p>
+            <hr style='border-color: #ff4b4b; opacity: 0.3;'>
+            <div class='paywall-price'>$0.99</div>
+            <p style='color: #bbb;'>Sadece bir kahve parasına <b>SINIRSIZ</b> erişim.</p>
+            <a href='https://www.buymeacoffee.com' target='_blank' class='paywall-btn'>🚀 PREMIUM AL VE DEVAM ET</a>
+            <br><br>
+            <p style='font-size: 0.9em; color: #888;'>Veya <a href='#' style='color: #888;'>giriş yaparak</a> haftalık 3 hak daha kazan.</p>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    # Arama butonunu pasif yapıyoruz
+    disable_search = True
+else:
+    disable_search = False
+
+
+# ARAMA FORMU (Limit dolsa bile görünür, ama buton çalışmaz)
+secilen_tur = st.selectbox("Tür Seçiniz:", ["Tümü", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Dram", "Suç"])
+secilen_detay = st.text_area("Nasıl bir şey arıyorsun?", placeholder="Örn: Beyin yakan, sonu sürprizli, 2020 sonrası...")
+
+col1, col2 = st.columns(2)
+with col1:
+    # Limit dolduysa buton disabled
+    btn_normal = st.button("🚀 Film Bul", use_container_width=True, disabled=disable_search)
+with col2:
+    is_prem = st.session_state.user and st.session_state.user['is_premium']
+    # Sevgili modu sadece premiumlara açık
+    btn_couple = st.button("💑 Sevgili Modu", use_container_width=True, disabled=not is_prem)
+    if not is_prem:
+        st.caption("🔒 Sadece Premium")
+
+# --- 7. FİLM GETİRME İŞLEMİ ---
+if (btn_normal and not disable_search) or (btn_couple and is_prem):
+    with st.spinner("Yapay zeka film seçiyor..."):
+        try:
+            # REST API (1.5 Flash - En Hızlı ve Ucuz)
+            api_key = st.secrets["google"]["api_key"]
+            model_name = "gemini-1.5-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            
+            yasakli = ", ".join(st.session_state.gosterilen_filmler)
+            context = "COUPLE MODE: Safe for date night." if btn_couple else "NORMAL MODE."
+            
+            prompt = f"""
+            Role: Movie curator. Language: Turkish.
+            Genre: {secilen_tur}. Details: {secilen_detay}. {context}
+            Ignore: [{yasakli}].
+            Return EXACTLY 3 movies. JSON Format:
+            [{{ "film_adi": "Name", "puan": "8.5", "yil": "2023", "neden": "Kısa açıklama" }}]
+            """
+            
+            data = {"contents": [{"parts": [{"text": prompt}]}]}
+            headers = {"Content-Type": "application/json"}
+            
+            resp = requests.post(url, headers=headers, json=data)
+            
+            if resp.status_code == 200:
+                content = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                filmler = json.loads(content.replace('```json', '').replace('```', '').strip())
+                
+                # Kullanımı düş
+                update_usage()
+                
+                # Sonuçları Göster
+                cols = st.columns(3)
+                for i, film in enumerate(filmler):
+                    st.session_state.gosterilen_filmler.append(film['film_adi'])
+                    with cols[i]:
+                        st.image(get_movie_poster(film['film_adi']), use_container_width=True)
+                        st.subheader(film['film_adi'])
+                        st.caption(f"⭐ {film['puan']} | 📅 {film['yil']}")
+                        st.info(film['neden'])
+                
+                # Misafir ise kalan hakkı söyle
+                if not st.session_state.user:
+                    kalan = 3 - st.session_state.guest_usage
+                    if kalan > 0:
+                        st.toast(f"Deneme hakkı: {kalan} kaldı!", icon="⏳")
                     else:
-                        st.error(f"Hata: {resp.status_code}")
+                        st.balloons() # Son hak bitince balonlar uçar, sonraki aramada paywall çıkar
                         
-                except Exception as e:
-                    st.error(f"Bağlantı hatası: {e}")
+            elif resp.status_code == 429:
+                st.error("Sunucu çok yoğun, lütfen bekleyin.")
+            else:
+                st.error("Bir hata oluştu.")
+                
+        except Exception as e:
+            st.error(f"Hata: {e}")
