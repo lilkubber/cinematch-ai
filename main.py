@@ -4,10 +4,8 @@ import google.generativeai as genai
 import requests
 import json
 
-# --- 1. AYARLAR ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🎬", layout="wide")
 
-# --- 2. FONKSİYONLAR ---
 def get_movie_poster(movie_name):
     try:
         api_key = st.secrets["tmdb"]["api_key"]
@@ -22,19 +20,14 @@ def get_movie_poster(movie_name):
     except:
         return "https://via.placeholder.com/500x750?text=Hata"
 
-# --- 3. BAĞLANTILAR ---
 try:
-    # Supabase Bağlantısı
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-    
-    # Google AI Bağlantısı
     genai.configure(api_key=st.secrets["google"]["api_key"])
     model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Bağlantı Hatası: {e}")
     st.stop()
 
-# --- 4. ARAYÜZ TASARIMI ---
 st.title("🎬 CineMatch AI")
 st.caption("Yapay Zeka Destekli Film Öneri Asistanı")
 
@@ -47,34 +40,38 @@ with st.sidebar:
         btn = st.form_submit_button("✨ Filmleri Getir")
     
     st.divider()
-    st.markdown("### 📋 Son İstekler")
-    if st.button("Geçmişi Yenile"):
-        try:
-            data = supabase.table("users").select("*").order("created_at", desc=True).limit(5).execute()
-            for satir in data.data:
-                st.text(f"👤 {satir['username']}")
-                st.caption(f"{satir['favorite_genre']}")
-                st.markdown("---")
-        except:
-            st.write("Veri yok.")
-
-# --- 5. ANA AKIŞ ---
-if btn and ad:
-    st.info("🧠 Yapay zeka filmleri seçiyor ve posterleri indiriyor...")
+    st.markdown("### 📋 Geçmiş Aramalarım")
     
-    # A. Veritabanına Kayıt
+    if st.button("Geçmişimi Göster"):
+        if ad:
+            try:
+                data = supabase.table("users").select("*").eq("username", ad).order("created_at", desc=True).limit(5).execute()
+                if data.data:
+                    for satir in data.data:
+                        st.caption(f"📅 {satir['created_at'][:10]}")
+                        st.info(f"{satir['favorite_genre']}")
+                        st.markdown("---")
+                else:
+                    st.warning("Bu isimle kayıtlı geçmiş bulunamadı.")
+            except Exception as e:
+                st.error(f"Hata: {e}")
+        else:
+            st.warning("Geçmişi görmek için yukarıya adını yazmalısın.")
+
+if btn and ad:
+    st.info(f"🧠 {ad} için 6 harika film seçiliyor...")
+    
     try:
         supabase.table("users").insert({"username": ad, "favorite_genre": f"{tur} - {detay}"}).execute()
     except:
         pass
 
-    # B. Gemini Prompt
     prompt = f"""
     Kullanıcı: {ad}
     Tür: {tur}
     Detay: {detay}
     
-    Bana bu kriterlere uyan 3 adet film öner.
+    Bana bu kriterlere uyan tam 6 ADET film öner.
     Cevabı SADECE şu JSON formatında ver:
     [
         {{
@@ -90,23 +87,24 @@ if btn and ad:
     
     try:
         response = model.generate_content(prompt)
-        # JSON Temizliği (Markdown tagleri gelirse temizle)
         text_response = response.text.replace('```json', '').replace('```', '').strip()
         filmler = json.loads(text_response)
         
         st.success("İşte senin için seçtiklerim! 👇")
         st.divider()
         
-        col1, col2, col3 = st.columns(3)
-        cols = [col1, col2, col3]
-        
-        for i, film in enumerate(filmler):
-            with cols[i]:
-                poster_url = get_movie_poster(film['film_adi'])
-                st.image(poster_url, use_container_width=True)
-                st.subheader(f"{film['turkce_ad']}")
-                st.caption(f"📅 {film['yil']} | ⭐ {film['puan']}")
-                st.info(f"{film['neden']}")
+        for i in range(0, len(filmler), 3):
+            cols = st.columns(3)
+            for j in range(3):
+                if i + j < len(filmler):
+                    film = filmler[i+j]
+                    with cols[j]:
+                        poster_url = get_movie_poster(film['film_adi'])
+                        st.image(poster_url, use_container_width=True)
+                        st.subheader(f"{film['turkce_ad']}")
+                        st.caption(f"📅 {film['yil']} | ⭐ {film['puan']}")
+                        st.info(f"{film['neden']}")
+            st.divider()
                 
     except Exception as e:
         st.error(f"Bir hata oluştu: {e}")
