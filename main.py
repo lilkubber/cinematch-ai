@@ -225,13 +225,42 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (KOTA DOSTU 1.5 FLASH) ---
+# --- 4. AKILLI MODEL SEÇİCİ (OTOMATİK MODEL BULUCU) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # 2.0 YERİNE 1.5 KULLANIYORUZ - KOTASI ÇOK DAHA YÜKSEK 👇
-    model = genai.GenerativeModel('models/gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+    # Mevcut modelleri listele ve en iyisini seç
+    mevcut_modeller = []
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                mevcut_modeller.append(m.name)
+    except:
+        pass
+
+    # Öncelik sırasına göre model ara
+    secilen_model_adi = "models/gemini-2.0-flash" # Varsayılan
+
+    # 1. Öncelik: Varsa 1.5 Flash (En Kararlı)
+    if "models/gemini-1.5-flash" in mevcut_modeller:
+        secilen_model_adi = "models/gemini-1.5-flash"
+    # 2. Öncelik: Yoksa Latest Flash
+    elif "models/gemini-flash-latest" in mevcut_modeller:
+        secilen_model_adi = "models/gemini-flash-latest"
+    # 3. Öncelik: O da yoksa 2.0 Flash
+    elif "models/gemini-2.0-flash" in mevcut_modeller:
+        secilen_model_adi = "models/gemini-2.0-flash"
+    # 4. Hiçbiri yoksa listedeki ilk 'flash' geçen modeli al
+    else:
+        for m in mevcut_modeller:
+            if "flash" in m:
+                secilen_model_adi = m
+                break
+    
+    # Modeli Başlat
+    model = genai.GenerativeModel(secilen_model_adi, generation_config={"response_mime_type": "application/json"})
+
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -240,6 +269,9 @@ except Exception as e:
 with st.sidebar:
     selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
     t = translations[selected_lang]
+    
+    # Hangi modeli kullandığımızı göster (Debug için)
+    # st.caption(f"🤖 Model: {secilen_model_adi.split('/')[-1]}")
 
 st.markdown(f"<h1>🍿 {t['title']}</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align: center; color: #bbb; font-size: 1.2rem;'>{t['subtitle']}</p>", unsafe_allow_html=True)
@@ -356,13 +388,13 @@ if tetikleyici and ad:
         """
         
         try:
-            # Hata yakalama bloğu (429 gelirse bilgilendir)
+            # Hata yakalama bloğu (429 gelirse otomatik bekle ve tekrar dene)
             try:
                 response = model.generate_content(prompt)
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Sunucu şu an çok yoğun. Lütfen 10 saniye sonra tekrar deneyin.")
-                    st.stop()
+                    time.sleep(4) # 4 saniye bekle
+                    response = model.generate_content(prompt)
                 else:
                     raise e
 
