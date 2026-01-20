@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
-import google.generativeai as genai
-import requests
+import requests # Artık sadece bunu kullanıyoruz, google.generativeai değil.
 import json
 import random
 import time
@@ -43,7 +42,7 @@ translations = {
         "btn_clear": "🗑️ Hafızayı Temizle",
         "msg_warning_name": "Lütfen önce sol menüden adını yaz.",
         "msg_success_history": "Hafıza temizlendi.",
-        "msg_searching": "Film seçiliyor (Yedekli Sistem)...",
+        "msg_searching": "Film seçiliyor (Direct API)...",
         "res_platform": "Platform:",
         "res_trailer": "▶️ Fragman",
         "res_watch": "🍿 Hemen İzle",
@@ -225,43 +224,47 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. AKILLI VE YEDEKLİ MODEL SEÇİCİ ---
+# --- 4. VERİTABANI BAĞLANTISI ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-    genai.configure(api_key=st.secrets["google"]["api_key"])
-    
 except Exception as e:
-    st.error(f"Connection Error: {e}")
+    st.error(f"DB Error: {e}")
     st.stop()
 
-# Bu fonksiyon, sırayla modelleri dener. Biri hata verirse diğerine geçer.
-def generate_with_fallback(prompt_text):
-    # Sırayla denenecek modeller listesi
-    # 1. Lite (Hızlı, Kotası yüksek)
-    # 2. Pro (Eski ama sağlam, 404 vermez)
-    candidates = [
-        "models/gemini-2.0-flash-lite-preview-02-05",
-        "models/gemini-2.0-flash-lite",
-        "models/gemini-pro"
-    ]
+# --- 5. MANUEL API ÇAĞRISI (KÜTÜPHANESİZ) ---
+def call_gemini_direct(prompt_text):
+    # Senin listende kesin olan, kota dostu model
+    model_name = "gemini-2.0-flash-lite-preview-02-05" 
+    api_key = st.secrets["google"]["api_key"]
     
-    last_error = None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     
-    for model_name in candidates:
-        try:
-            # Modeli seç ve dene
-            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-            response = model.generate_content(prompt_text)
-            return response # Başarılıysa sonucu döndür
-        except Exception as e:
-            last_error = e
-            time.sleep(1) # Kısa bir bekleme yapıp sonraki modele geç
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }],
+        "generationConfig": {
+            "response_mime_type": "application/json"
+        }
+    }
+    
+    # 429 hatasına karşı 3 kez deneme yapan döngü
+    for i in range(3):
+        response = requests.post(url, headers=headers, json=data)
+        
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            time.sleep(2 + i) # Hata alınca 2, 3, 4 saniye bekle
             continue
+        else:
+            # Başka bir hata varsa direkt söyle
+            raise Exception(f"API Hatası: {response.status_code} - {response.text}")
             
-    # Hiçbiri çalışmazsa hatayı fırlat
-    raise last_error
+    raise Exception("Sunucu çok yoğun (429), lütfen biraz bekleyin.")
 
-# --- 5. ARAYÜZ MANTIK ---
+# --- 6. ARAYÜZ MANTIK ---
 with st.sidebar:
     selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
     t = translations[selected_lang]
@@ -345,7 +348,7 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- 6. İŞLEM ---
+# --- 7. İŞLEM ---
 if tetikleyici and ad:
     with st.spinner(f"🎬 {t['msg_searching']}"):
         
@@ -381,51 +384,55 @@ if tetikleyici and ad:
         """
         
         try:
-            # BURADA FARKLI BİR YÖNTEM KULLANIYORUZ: FALLBACK FONKSİYONU
-            response = generate_with_fallback(prompt)
-
-            text_response = response.text.replace('```json', '').replace('```', '').strip()
-            filmler_ham = json.loads(text_response)
-            filmler = puana_gore_sirala(filmler_ham)
+            # DIRECT API ÇAĞRISI
+            json_result = call_gemini_direct(prompt)
             
-            for f in filmler:
-                st.session_state.gosterilen_filmler.append(f['film_adi'])
+            # JSON Çözümleme
+            try:
+                text_content = json_result['candidates'][0]['content']['parts'][0]['text']
+                filmler_ham = json.loads(text_content)
+                filmler = puana_gore_sirala(filmler_ham)
+                
+                for f in filmler:
+                    st.session_state.gosterilen_filmler.append(f['film_adi'])
 
-            st.success("✨")
-            st.markdown("---")
-            
-            for i in range(0, len(filmler), 3):
-                cols = st.columns(3)
-                for j in range(3):
-                    if i + j < len(filmler):
-                        film = filmler[i+j]
-                        with cols[j]:
-                            poster_url = get_movie_poster(film['film_adi'])
-                            st.image(poster_url, use_container_width=True)
-                            
-                            try:
-                                p = float(film['puan'])
-                                renk = "🟢" if p >= 8.0 else "🟡" if p >= 6.5 else "🔴"
-                            except:
-                                renk = "⭐"
+                st.success("✨")
+                st.markdown("---")
+                
+                for i in range(0, len(filmler), 3):
+                    cols = st.columns(3)
+                    for j in range(3):
+                        if i + j < len(filmler):
+                            film = filmler[i+j]
+                            with cols[j]:
+                                poster_url = get_movie_poster(film['film_adi'])
+                                st.image(poster_url, use_container_width=True)
+                                
+                                try:
+                                    p = float(film['puan'])
+                                    renk = "🟢" if p >= 8.0 else "🟡" if p >= 6.5 else "🔴"
+                                except:
+                                    renk = "⭐"
 
-                            st.markdown(f"### {film['turkce_ad']}")
-                            st.caption(f"{renk} **{film['puan']}** | 📅 {film['yil']}")
-                            st.markdown(f"📺 **{t['res_platform']}** {film.get('platform', '-')}")
-                            st.info(f"{film['neden']}")
-                            
-                            col_btn1, col_btn2 = st.columns(2)
-                            with col_btn1:
-                                lnk = f"https://www.youtube.com/results?search_query={film['film_adi'].replace(' ', '+')}+trailer"
-                                st.link_button(t['res_trailer'], lnk, use_container_width=True)
-                            with col_btn2:
-                                lnk2 = f"https://www.google.com/search?q={film['film_adi'].replace(' ', '+')}+watch"
-                                st.link_button(t['res_watch'], lnk2, use_container_width=True)
-                            
-                st.markdown("<br>", unsafe_allow_html=True)
+                                st.markdown(f"### {film['turkce_ad']}")
+                                st.caption(f"{renk} **{film['puan']}** | 📅 {film['yil']}")
+                                st.markdown(f"📺 **{t['res_platform']}** {film.get('platform', '-')}")
+                                st.info(f"{film['neden']}")
+                                
+                                col_btn1, col_btn2 = st.columns(2)
+                                with col_btn1:
+                                    lnk = f"https://www.youtube.com/results?search_query={film['film_adi'].replace(' ', '+')}+trailer"
+                                    st.link_button(t['res_trailer'], lnk, use_container_width=True)
+                                with col_btn2:
+                                    lnk2 = f"https://www.google.com/search?q={film['film_adi'].replace(' ', '+')}+watch"
+                                    st.link_button(t['res_watch'], lnk2, use_container_width=True)
+                                
+                    st.markdown("<br>", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"JSON Ayrıştırma Hatası: {e} - API Yanıtı: {json_result}")
                 
         except Exception as e:
-            st.error(f"Hata oluştu (Tüm modeller denendi): {e}")
+            st.error(f"{e}")
 
 elif tetikleyici and not ad:
     st.warning(t['msg_warning_name'])
