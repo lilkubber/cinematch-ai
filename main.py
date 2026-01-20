@@ -124,20 +124,20 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (SUPABASE & GEMINI 2.0) ---
+# --- 4. BAĞLANTILAR (MODEL DEĞİŞTİRİLDİ) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # KOTA SORUNU ÇÖZÜLDÜ: 'gemini-2.0-flash' kullanıyoruz 👇
-    model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
+    # KOTA DOSTU MODEL SEÇİLDİ: 'gemini-flash-latest' 👇
+    model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
 
 # --- 5. ARAYÜZ MANTIK ---
 with st.sidebar:
-    # Dil Seçimi En Üstte
+    # Dil Seçimi
     selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT"])
     t = translations[selected_lang]
 
