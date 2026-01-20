@@ -225,13 +225,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR ---
+# --- 4. BAĞLANTILAR (KOTA DOSTU 2.0 MODEL) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # "gemini-flash-latest" -> Yeni API Key ile en yüksek kotalı modeldir (1500 İstek/Gün)
-    model = genai.GenerativeModel('models/gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
+    # BU MODEL LİSTENDE VARDI VE KOTASI 2.5'TEN ÇOK DAHA YÜKSEK 👇
+    model = genai.GenerativeModel('models/gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -361,7 +361,7 @@ if tetikleyici and ad:
                 response = model.generate_content(prompt)
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Günlük bedava kotan doldu! Yeni bir API Key alarak devam edebilirsin.")
+                    st.error("🚨 Sunucu şu an çok yoğun. Lütfen 10 saniye sonra tekrar deneyin (Yeni Key'in devreye girmesi için sayfayı yenilemeyi unutma).")
                     st.stop()
                 else:
                     raise e
