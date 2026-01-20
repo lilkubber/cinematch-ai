@@ -1,86 +1,68 @@
 import streamlit as st
+import requests
 import json
-import time
+import traceback # Hatanın kökünü bulmak için
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
+st.set_page_config(page_title="CineMatch Test", page_icon="🧪")
 
-# --- 2. HATA YAKALAYICI (BEYAZ EKRAN ÖNLEYİCİ) ---
-try:
-    import requests
-except ImportError:
-    st.error("🚨 KRİTİK HATA: 'requests' kütüphanesi bulunamadı!")
-    st.warning("👉 ÇÖZÜM: 'requirements.txt' dosyasının içine 'requests' yazıp kaydetmen lazım.")
-    st.stop() # Kodun geri kalanını çalıştırma, çökmesin.
+st.title("🧪 CineMatch Dedektif Modu")
+st.info("Bu modda resimler kapalıdır. Amaç hatayı bulmaktır.")
 
-# --- 3. TASARIM ---
-st.markdown("""
-<style>
-.stApp { background-color: #0e0e0e; color: #e5e5e5; }
-.stButton>button { background: linear-gradient(90deg, #E50914 0%, #B20710 100%); color: white; border: none; height: 3em; width: 100%; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 4. FONKSİYONLAR ---
-def get_groq_json(prompt_text):
+# --- 2. FONKSİYONLAR ---
+def get_groq_text(prompt_text):
+    # Adım Adım Loglama
+    st.write("1️⃣ Fonksiyona girildi.")
+    
     if "groq" not in st.secrets:
-        st.error("❌ HATA: Secrets ayarlarında [groq] anahtarı yok.")
+        st.error("❌ Secrets ayarlarında [groq] yok!")
         return None
     
+    st.write("2️⃣ Anahtar okundu, bağlantı kuruluyor...")
+    
+    api_key = st.secrets["groq"]["api_key"]
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    
+    data = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt_text}],
+        # JSON yerine normal text istiyoruz ki JSON hatası olmasın
+    }
+    
     try:
-        api_key = st.secrets["groq"]["api_key"]
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        data = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt_text}],
-            "response_format": {"type": "json_object"} 
-        }
-        res = requests.post(url, headers=headers, json=data, timeout=15)
+        res = requests.post(url, headers=headers, json=data, timeout=20)
+        st.write(f"3️⃣ API Yanıt Kodu: {res.status_code}")
+        
         if res.status_code == 200:
             return res.json()['choices'][0]['message']['content']
         else:
-            st.error(f"API Hatası: {res.status_code}")
+            st.error(f"❌ API Hatası: {res.text}")
             return None
     except Exception as e:
-        st.error(f"Bağlantı Hatası: {e}")
+        st.error(f"❌ Bağlantı Koptu: {e}")
         return None
 
-def get_poster(movie_name):
+# --- 3. ARAYÜZ ---
+tur = st.selectbox("Tür", ["Bilim Kurgu", "Aksiyon", "Komedi"])
+
+if st.button("FİLM BUL (TEST) 🚀"):
+    st.write("🏁 Butona basıldı, işlem başlıyor...")
+    
     try:
-        if "tmdb" in st.secrets:
-            api_key = st.secrets["tmdb"]["api_key"]
-            url = f"https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={movie_name}"
-            res = requests.get(url, timeout=2).json()
-            if res['results']: return f"https://image.tmdb.org/t/p/w500{res['results'][0]['poster_path']}"
-    except: pass
-    return "https://via.placeholder.com/500x750?text=Resim+Yok"
-
-# --- 5. ARAYÜZ ---
-st.title("🍿 CineMatch AI")
-
-col1, col2 = st.columns([1, 2])
-with col1: tur = st.selectbox("Tür", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram"])
-with col2: detay = st.text_input("Detay", placeholder="Örn: 2024 yapımı...")
-
-if st.button("FİLM BUL 🚀"):
-    with st.spinner("Aranıyor..."):
-        prompt = f"""
-        Role: Movie curator. Language: Turkish. Genre: {tur}. Details: {detay}.
-        Return EXACTLY 3 movies. JSON Format: {{ "movies": [ {{ "isim": "Ad", "yil": "2023", "puan": "8.0", "ozet": "..." }} ] }}
-        """
-        json_data = get_groq_json(prompt)
-        if json_data:
-            try:
-                data = json.loads(json_data)
-                filmler = data.get("movies", [])
-                if filmler:
-                    cols = st.columns(3)
-                    for i, film in enumerate(filmler):
-                        with cols[i]:
-                            st.image(get_poster(film['isim']), use_container_width=True)
-                            st.subheader(f"{film['isim']}")
-                            st.caption(f"⭐ {film['puan']}")
-                            st.info(film['ozet'])
-                else: st.warning("Film bulunamadı.")
-            except: st.error("Veri hatası.")
+        # Hata olabilecek her adımı try-catch içine aldık
+        prompt = f"Bana {tur} türünde 3 tane film öner. Sadece film isimlerini alt alta yaz. Başka bir şey yazma."
+        
+        cevap = get_groq_text(prompt)
+        
+        if cevap:
+            st.success("✅ İŞLEM BAŞARILI!")
+            st.write("Yapay Zekadan Gelen Cevap:")
+            st.code(cevap)
+        else:
+            st.warning("⚠️ Cevap boş geldi.")
+            
+    except Exception:
+        # İşte burası o beyaz ekranı engelleyen yer!
+        st.error("🚨 SİSTEM ÇÖKTÜ! İşte hatanın sebebi:")
+        st.code(traceback.format_exc()) # Hatayı ekrana basar
