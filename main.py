@@ -1,80 +1,70 @@
 import streamlit as st
-import os
+import http.client
+import json
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
+st.set_page_config(page_title="CineMatch Atomic", page_icon="🐜", layout="wide")
 
-st.markdown("""
-<style>
-.stApp { background-color: #0e0e0e; color: #e5e5e5; }
-.stButton>button { background: linear-gradient(90deg, #E50914 0%, #B20710 100%); color: white; border: none; height: 3em; width: 100%; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
+st.title("🐜 CineMatch: Atom Karınca Modu")
+st.info("Bu mod, harici hiçbir kütüphane kullanmaz. Beyaz ekran vermesi imkansızdır.")
 
-# --- 2. RESMİ GROQ İSTEMCİSİ ---
-# Burada 'requests' yerine 'groq' kütüphanesini kullanıyoruz.
-try:
-    from groq import Groq
-except ImportError:
-    st.error("🚨 HATA: 'groq' kütüphanesi yüklü değil! requirements.txt dosyasına 'groq' yazmalısın.")
-    st.stop()
-
-def get_movie_recommendation(tur, detay):
-    # Secrets Kontrolü
+# --- 2. FONKSİYONLAR (SAF PYTHON) ---
+def get_groq_atomic(prompt_text):
     if "groq" not in st.secrets:
-        st.error("❌ Groq API Key bulunamadı.")
+        st.error("Secrets ayarı eksik!")
         return None
-
+        
     api_key = st.secrets["groq"]["api_key"]
     
+    # 1. Bağlantı Kur (Saf HTTP)
+    conn = http.client.HTTPSConnection("api.groq.com")
+    
+    payload = json.dumps({
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "user",
+                "content": f"Sen bir film asistanısın. Türkçe cevap ver. Şu özelliklerde 3 film öner: {prompt_text}. Sadece film isimlerini ve yıllarını madde madde yaz."
+            }
+        ],
+        "max_tokens": 300
+    })
+    
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    
     try:
-        # İstemciyi başlat
-        client = Groq(api_key=api_key)
+        # 2. İsteği Gönder
+        conn.request("POST", "/openai/v1/chat/completions", payload, headers)
         
-        prompt = f"""
-        Sen bir film uzmanısın. Dil: Türkçe.
-        Tür: {tur}. Detay: {detay}.
-        Bana tam olarak 3 film öner.
-        Sadece film isimlerini ve yıllarını şu formatta yaz:
-        1. Film Adı (Yıl) - Kısa Açıklama
-        2. Film Adı (Yıl) - Kısa Açıklama
-        3. Film Adı (Yıl) - Kısa Açıklama
-        Başka hiçbir giriş cümlesi veya not yazma.
-        """
+        # 3. Cevabı Al
+        res = conn.getresponse()
+        data = res.read()
         
-        # İstek Gönder (Resmi Yöntem)
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.5,
-            max_tokens=300, # Cevabı kısa tutuyoruz
-        )
-        
-        return chat_completion.choices[0].message.content
-
+        if res.status == 200:
+            return json.loads(data.decode("utf-8"))['choices'][0]['message']['content']
+        else:
+            st.error(f"Sunucu Hatası: {res.status}")
+            st.text(data.decode("utf-8"))
+            return None
+            
     except Exception as e:
-        st.error(f"⚠️ API Bağlantı Hatası: {str(e)}")
+        st.error(f"Bağlantı Hatası: {e}")
         return None
+    finally:
+        conn.close()
 
 # --- 3. ARAYÜZ ---
-st.title("🍿 CineMatch AI")
-st.caption("Resmi Groq Kütüphanesi ile Güçlendirildi")
+tur = st.selectbox("Tür Seç", ["Bilim Kurgu", "Aksiyon", "Komedi"])
+detay = st.text_input("Detay Gir", "2024 yapımı...")
 
-col1, col2 = st.columns([1, 2])
-with col1:
-    tur = st.selectbox("Tür", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram"])
-with col2:
-    detay = st.text_input("Detay", placeholder="Örn: 2024 yapımı...")
-
-if st.button("FİLM BUL 🚀"):
-    with st.spinner("Yapay zeka düşünüyor..."):
-        sonuc = get_movie_recommendation(tur, detay)
+if st.button("FİLM BUL (SAF MOD) 🚀"):
+    with st.spinner("Atom karınca çalışıyor..."):
+        prompt = f"Tür: {tur}, Detay: {detay}"
+        sonuc = get_groq_atomic(prompt)
         
         if sonuc:
-            st.success("İşte Öneriler:")
+            st.success("✅ BAŞARILI!")
             st.markdown(sonuc)
