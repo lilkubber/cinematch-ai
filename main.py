@@ -225,13 +225,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (KOTA DOSTU 2.0 MODEL) ---
+# --- 4. BAĞLANTILAR (KOTA DOSTU 1.5 FLASH) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # BU MODEL LİSTENDE VARDI VE KOTASI 2.5'TEN ÇOK DAHA YÜKSEK 👇
-    model = genai.GenerativeModel('models/gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
+    # 2.0 YERİNE 1.5 KULLANIYORUZ - KOTASI ÇOK DAHA YÜKSEK 👇
+    model = genai.GenerativeModel('models/gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -361,7 +361,7 @@ if tetikleyici and ad:
                 response = model.generate_content(prompt)
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Sunucu şu an çok yoğun. Lütfen 10 saniye sonra tekrar deneyin (Yeni Key'in devreye girmesi için sayfayı yenilemeyi unutma).")
+                    st.error("🚨 Sunucu şu an çok yoğun. Lütfen 10 saniye sonra tekrar deneyin.")
                     st.stop()
                 else:
                     raise e
