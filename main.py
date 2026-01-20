@@ -1,107 +1,102 @@
 import streamlit as st
-import requests
+import os
 import json
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="CineMatch Safe", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="CineMatch Ultra", page_icon="💎", layout="wide")
 
+# Tasarım
 st.markdown("""
 <style>
-.stApp { background-color: #0e0e0e; color: #e5e5e5; }
-.stButton>button { background: linear-gradient(90deg, #E50914 0%, #B20710 100%); color: white; border: none; height: 3em; width: 100%; font-weight: bold; font-size: 18px; }
-.movie-card { background-color: #1a1a1a; padding: 20px; border-radius: 10px; border: 1px solid #333; margin-bottom: 20px; }
-.movie-title { font-size: 22px; font-weight: bold; color: #E50914; }
-.movie-meta { font-size: 14px; color: #888; margin-bottom: 10px; }
-.movie-rating { color: #FFD700; font-weight: bold; font-size: 16px; }
+.stApp { background-color: #000; color: #fff; }
+.stButton>button { background-color: #E50914; color: white; border-radius: 4px; font-weight: bold; width: 100%; height: 50px; }
+.movie-box { background: #111; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
+h3 { color: #E50914; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. GÜVENLİ YAPAY ZEKA FONKSİYONU ---
-def get_safe_recommendations(prompt_text):
-    # Secrets Kontrolü
+# --- 2. GÜVENLİ KÜTÜPHANE YÜKLEME ---
+try:
+    from openai import OpenAI
+except ImportError:
+    st.error("🚨 HATA: 'openai' kütüphanesi eksik! requirements.txt dosyasına 'openai' eklemelisin.")
+    st.stop()
+
+# --- 3. FONKSİYONLAR ---
+def get_recommendations_safe(prompt_text):
     if "groq" not in st.secrets:
-        st.error("❌ HATA: Secrets ayarlarında [groq] anahtarı yok!")
+        st.error("Secrets ayarı eksik.")
         return None
         
     api_key = st.secrets["groq"]["api_key"]
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     
-    # Yapay Zekaya "Bana JSON ver" diyoruz.
-    # Puanı, yılı ve özeti yapay zeka kendi hafızasından yazacak.
-    system_prompt = """
+    # OpenAI İstemcisi ile Groq'a bağlanıyoruz (En sağlam yöntem)
+    client = OpenAI(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=api_key
+    )
+    
+    system_msg = """
     Sen bir film uzmanısın. Türkçe cevap ver.
-    Cevabın SADECE şu JSON formatında olmalı, başka hiçbir kelime etme:
-    {
-        "movies": [
-            { "isim": "Film Adı", "yil": "2023", "puan": "8.5", "ozet": "İlgi çekici kısa özet." },
-            { "isim": "Film Adı 2", "yil": "2022", "puan": "7.1", "ozet": "İlgi çekici kısa özet." },
-            { "isim": "Film Adı 3", "yil": "2020", "puan": "9.0", "ozet": "İlgi çekici kısa özet." }
-        ]
-    }
+    Cevabın SADECE geçerli bir JSON objesi olsun.
+    Format: { "movies": [ {"isim": "Film Adı", "yil": "2023", "puan": "8.5", "ozet": "Kısa özet."} ] }
     """
     
-    data = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"İstek: {prompt_text}. Bana en iyi 3 filmi öner."}
-        ],
-        "response_format": {"type": "json_object"}
-    }
-    
     try:
-        # Timeout süresini artırdık (30 saniye) ki yarıda kesilip beyaz ekran olmasın
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt_text}
+            ],
+            response_format={"type": "json_object"},
+            timeout=20 # 20 saniye bekle, cevap gelmezse hata ver (beyaz ekran verme)
+        )
         
-        if response.status_code == 200:
-            return response.json()['choices'][0]['message']['content']
-        else:
-            st.error(f"API Hatası: {response.status_code} - {response.text}")
-            return None
+        return response.choices[0].message.content
+        
     except Exception as e:
-        st.error(f"Bağlantı Sorunu: {e}")
+        st.error(f"⚠️ Bağlantı Hatası: {str(e)}")
         return None
 
-# --- 3. ARAYÜZ ---
-st.title("🍿 CineMatch AI (Güvenli Mod)")
-st.caption("Veriler doğrudan Yapay Zeka hafızasından çekiliyor.")
+# --- 4. ARAYÜZ ---
+st.title("🍿 CineMatch Ultra")
+st.info("Bu sürüm OpenAI motoru kullanarak çökme riskini en aza indirir.")
 
 col1, col2 = st.columns([1, 2])
 with col1:
-    tur = st.selectbox("Tür Seç", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram"])
+    tur = st.selectbox("Tür", ["Bilim Kurgu", "Aksiyon", "Korku", "Komedi", "Dram"])
 with col2:
-    detay = st.text_input("Detay Gir", placeholder="Örn: Sürpriz sonlu, uzayda geçen...")
+    detay = st.text_input("Detay", placeholder="Örn: Sürpriz sonlu...")
 
 if st.button("FİLM BUL 🚀"):
-    with st.spinner("Yapay zeka analiz ediyor..."):
+    # Spinner bazen kilitlenmeye sebep olabilir, status kullanalım
+    status_box = st.status("Yapay zeka çalışıyor...", expanded=True)
+    
+    json_str = get_recommendations_safe(f"Tür: {tur}, Detay: {detay}. Bana 3 film öner.")
+    
+    if json_str:
+        status_box.update(label="✅ Tamamlandı!", state="complete", expanded=False)
         
-        json_str = get_safe_recommendations(f"Tür: {tur}, Detay: {detay}")
-        
-        if json_str:
-            try:
-                # JSON Temizliği (Bazen yapay zeka başına ```json koyar, siliyoruz)
-                if "```json" in json_str: json_str = json_str.split("```json")[1].split("```")[0].strip()
-                elif "```" in json_str: json_str = json_str.split("```")[1].split("```")[0].strip()
-                
-                data = json.loads(json_str)
-                filmler = data.get("movies", [])
-                
-                if filmler:
-                    cols = st.columns(3)
-                    for i, film in enumerate(filmler):
-                        with cols[i]:
-                            # Film Kartı Tasarımı
-                            st.markdown(f"""
-                            <div class="movie-card">
-                                <div class="movie-title">{film['isim']}</div>
-                                <div class="movie-meta">📅 {film['yil']}</div>
-                                <div class="movie-rating">⭐ {film['puan']}/10</div>
-                                <p style="font-size:14px; margin-top:10px;">{film['ozet']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                else:
-                    st.warning("Uygun film bulunamadı.")
-            except Exception as e:
-                st.error("Veri işleme hatası.")
-                st.code(json_str)
+        try:
+            data = json.loads(json_str)
+            filmler = data.get("movies", [])
+            
+            if filmler:
+                cols = st.columns(3)
+                for i, film in enumerate(filmler):
+                    with cols[i]:
+                        st.markdown(f"""
+                        <div class="movie-box">
+                            <h3>{film['isim']}</h3>
+                            <p>📅 {film['yil']} | ⭐ {film['puan']}</p>
+                            <p style="color:#aaa; font-size:14px;">{film['ozet']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+            else:
+                st.warning("Film bulunamadı.")
+        except:
+            st.error("Veri işleme hatası.")
+            st.code(json_str)
+    else:
+        status_box.update(label="❌ Hata Oluştu", state="error")
