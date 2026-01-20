@@ -8,7 +8,7 @@ import random
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# Oturum Hafızası
+# Oturum Hafızası (Tekrarı Önlemek İçin)
 if 'gosterilen_filmler' not in st.session_state:
     st.session_state.gosterilen_filmler = []
 
@@ -224,13 +224,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (KESİN ÇÖZÜM MODELİ) ---
+# --- 4. BAĞLANTILAR (GARANTİ MODEL) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # "gemini-1.5-flash" -> BU MODELİN KOTASI ÇOK YÜKSEK VE ASLA 2.5 HATASI VERMEZ
-    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+    # KESİN ÇÖZÜM İÇİN MODEL İSMİ GÜNCELLENDİ 👇
+    model = genai.GenerativeModel('models/gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
