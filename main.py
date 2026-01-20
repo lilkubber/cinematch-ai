@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
-import requests # Artık sadece bunu kullanıyoruz, google.generativeai değil.
+import requests # Sadece requests kullanıyoruz
 import json
 import random
 import time
@@ -42,7 +42,7 @@ translations = {
         "btn_clear": "🗑️ Hafızayı Temizle",
         "msg_warning_name": "Lütfen önce sol menüden adını yaz.",
         "msg_success_history": "Hafıza temizlendi.",
-        "msg_searching": "Film seçiliyor (Direct API)...",
+        "msg_searching": "Film seçiliyor (Protokol: REST 1.5)...",
         "res_platform": "Platform:",
         "res_trailer": "▶️ Fragman",
         "res_watch": "🍿 Hemen İzle",
@@ -231,10 +231,11 @@ except Exception as e:
     st.error(f"DB Error: {e}")
     st.stop()
 
-# --- 5. MANUEL API ÇAĞRISI (KÜTÜPHANESİZ) ---
+# --- 5. MANUEL REST API ÇAĞRISI (GEMINI 1.5 FLASH) ---
 def call_gemini_direct(prompt_text):
-    # Senin listende kesin olan, kota dostu model
-    model_name = "gemini-2.0-flash-lite-preview-02-05" 
+    # BURASI ÇOK ÖNEMLİ: "gemini-1.5-flash" kullanıyoruz.
+    # Python kütüphanesi bunu bulamıyor ama REST API bulacaktır.
+    model_name = "gemini-1.5-flash"
     api_key = st.secrets["google"]["api_key"]
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
@@ -249,20 +250,24 @@ def call_gemini_direct(prompt_text):
         }
     }
     
-    # 429 hatasına karşı 3 kez deneme yapan döngü
-    for i in range(3):
-        response = requests.post(url, headers=headers, json=data)
-        
-        if response.status_code == 200:
-            return response.json()
-        elif response.status_code == 429:
-            time.sleep(2 + i) # Hata alınca 2, 3, 4 saniye bekle
-            continue
+    # Hata yakalama
+    response = requests.post(url, headers=headers, json=data)
+    
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 429:
+        raise Exception(f"⚠️ KOTA DOLDU (429). Lütfen API Key'i değiştirin veya 1 saat bekleyin. (Model: {model_name})")
+    elif response.status_code == 404:
+        # Eğer 1.5 Flash bulunamazsa 1.0 Pro'yu dene (Yedek)
+        fallback_model = "gemini-pro"
+        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent?key={api_key}"
+        response_fallback = requests.post(url_fallback, headers=headers, json=data)
+        if response_fallback.status_code == 200:
+            return response_fallback.json()
         else:
-            # Başka bir hata varsa direkt söyle
-            raise Exception(f"API Hatası: {response.status_code} - {response.text}")
-            
-    raise Exception("Sunucu çok yoğun (429), lütfen biraz bekleyin.")
+            raise Exception(f"⚠️ HİÇBİR MODEL BULUNAMADI. API Key hatası olabilir. (Hata: {response.status_code})")
+    else:
+        raise Exception(f"API Hatası: {response.status_code} - {response.text}")
 
 # --- 6. ARAYÜZ MANTIK ---
 with st.sidebar:
