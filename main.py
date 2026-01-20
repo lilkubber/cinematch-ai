@@ -8,7 +8,7 @@ import random
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# Oturum Hafızası
+# Oturum Hafızası (Tekrarı Önlemek İçin)
 if 'gosterilen_filmler' not in st.session_state:
     st.session_state.gosterilen_filmler = []
 
@@ -22,8 +22,7 @@ def local_css(file_name):
 
 local_css("style.css")
 
-# --- 2. DİL SÖZLÜĞÜ (Global Brain) ---
-# Burası uygulamanın dil beyni. Yeni dil eklemek istersen buraya ekle.
+# --- 2. DİL SÖZLÜĞÜ (Global Destek) ---
 translations = {
     "TR": {
         "title": "CineMatch AI",
@@ -47,7 +46,7 @@ translations = {
         "res_platform": "Platform:",
         "res_trailer": "▶️ Fragman",
         "res_watch": "🍿 Hemen İzle",
-        "prompt_lang": "Turkish", # Gemini'ye hangi dilde cevap vereceğini söyler
+        "prompt_lang": "Turkish",
         "genres": ["Tümü", "Anime", "Bilim Kurgu", "Aksiyon", "Gerilim", "Korku", "Romantik", "Komedi", "Suç", "Dram", "Animasyon"]
     },
     "EN": {
@@ -59,7 +58,7 @@ translations = {
         "genre_label": "Genre:",
         "detail_label": "Extra Details (Optional):",
         "detail_placeholder": "E.g., Released after 2020...",
-        "how_to_watch": "⚡ Mood / Context",
+        "how_to_watch": "⚡ Context / Mood",
         "btn_love": "💑 Date Night",
         "btn_random": "🎲 I'm Feeling Lucky",
         "btn_family": "👨‍👩‍👧‍👦 Family Time",
@@ -125,29 +124,26 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR ---
+# --- 4. BAĞLANTILAR (SUPABASE & GEMINI 2.0) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
-    model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
+    
+    # KOTA SORUNU ÇÖZÜLDÜ: 'gemini-2.0-flash' kullanıyoruz 👇
+    model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
 
-# --- 5. ARAYÜZ ---
-
-# DİL SEÇİMİ (Sidebar'ın en tepesi)
+# --- 5. ARAYÜZ MANTIK ---
 with st.sidebar:
-    # Kullanıcı dili seçiyor
+    # Dil Seçimi En Üstte
     selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT"])
-    # Seçilen dilin sözlüğünü 't' değişkenine atıyoruz
     t = translations[selected_lang]
 
-# Başlıklar (Seçilen dile göre değişir)
 st.markdown(f"<h1>🍿 {t['title']}</h1>", unsafe_allow_html=True)
 st.markdown(f"<p style='text-align: center; color: #bbb; font-size: 1.2rem;'>{t['subtitle']}</p>", unsafe_allow_html=True)
 
-# Değişkenler
 tetikleyici = False
 final_prompt_tur = ""
 final_prompt_detay = ""
@@ -157,7 +153,6 @@ with st.sidebar:
     st.markdown(f"### {t['settings']}")
     ad = st.text_input(t['name_label'], placeholder=t['name_placeholder'], key="user_name")
     
-    # Tür Listesi dile göre değişiyor
     secilen_tur = st.selectbox(t['genre_label'], t['genres'])
     secilen_detay = st.text_area(t['detail_label'], placeholder=t['detail_placeholder'])
 
@@ -167,31 +162,27 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     
     with col1:
-        # SEVGİLİ MODU
         if st.button(t['btn_love'], use_container_width=True):
             tetikleyici = True
             mod_aciklamasi = "Couple/Date Mode"
             final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Context: Watching with a romantic partner. Should be engaging, good flow, no extreme gore unless requested."
+            final_prompt_detay = f"{secilen_detay}. Context: Watching with partner. Good flow, no extreme gore unless requested."
 
-        # RASTGELE MODU
         if st.button(t['btn_random'], use_container_width=True):
             tetikleyici = True
-            mod_aciklamasi = "Random/Lucky Mode"
-            konular = ["Plot Twist", "Dystopia", "One Room Thriller", "Psychological", "Crime/Mystery", "Underdog Story", "Mind-Bending"]
+            mod_aciklamasi = "Random Mode"
+            konular = ["Plot Twist", "Dystopia", "One Room Thriller", "Psychological", "Crime/Mystery", "Mind-Bending"]
             sansli_konu = random.choice(konular)
             final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Theme: '{sansli_konu}'. Pick a hidden gem."
+            final_prompt_detay = f"{secilen_detay}. Theme: '{sansli_konu}'. Hidden gem."
 
     with col2:
-        # AİLE MODU
         if st.button(t['btn_family'], use_container_width=True):
             tetikleyici = True
             mod_aciklamasi = "Family Mode"
             final_prompt_tur = secilen_tur
-            final_prompt_detay = f"{secilen_detay}. Context: Family movie night. Strictly NO explicit content or extreme violence. Suitable for parents and teens."
+            final_prompt_detay = f"{secilen_detay}. Context: Family night. NO explicit content/violence."
 
-        # NORMAL MOD
         if st.button(t['btn_normal'], use_container_width=True):
             tetikleyici = True
             mod_aciklamasi = "Manual Search"
@@ -217,11 +208,10 @@ with st.sidebar:
             st.session_state.gosterilen_filmler = []
             st.success(t['msg_success_history'])
 
-# --- 6. ÇALIŞMA ZAMANI ---
+# --- 6. İŞLEM ---
 if tetikleyici and ad:
     with st.spinner(f"🎬 {t['msg_searching']}"):
         
-        # Loglama (Supabase)
         try:
             log_text = f"[{selected_lang}] {final_prompt_tur} - {final_prompt_detay}"
             supabase.table("users").insert({"username": ad, "favorite_genre": log_text}).execute()
@@ -230,26 +220,25 @@ if tetikleyici and ad:
 
         yasakli_liste = ", ".join(st.session_state.gosterilen_filmler)
         
-        # GEMINI PROMPT (DİL AYARLI)
         prompt = f"""
-        Role: World's best movie curator.
-        User Language: {t['prompt_lang']} (YOU MUST ANSWER IN THIS LANGUAGE)
+        Role: Movie curator.
+        Target Language: {t['prompt_lang']} (ANSWER IN THIS LANGUAGE)
         Genre: {final_prompt_tur}
         Details: {final_prompt_detay}
         
-        Rule 1: Do NOT recommend these movies again: [{yasakli_liste}]
+        Rule 1: Ignore these movies: [{yasakli_liste}]
         Rule 2: Recommend exactly 6 movies.
-        Rule 3: Use real IMDb scores.
+        Rule 3: Real IMDb scores.
         
-        Output format (JSON ONLY):
+        JSON Format ONLY:
         [
             {{
                 "film_adi": "Original Name",
-                "turkce_ad": "Translated Name in {t['prompt_lang']}",
+                "turkce_ad": "Translated Name",
                 "yil": "2023",
                 "puan": "8.8",
                 "platform": "Netflix, Disney+ etc.",
-                "neden": "Why this fits? (Write in {t['prompt_lang']})"
+                "neden": "Reason in {t['prompt_lang']}"
             }}, ...
         ]
         """
