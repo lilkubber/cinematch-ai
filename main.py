@@ -224,13 +224,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (LİSTEDEN SEÇİLEN GARANTİ MODEL) ---
+# --- 4. BAĞLANTILAR (LİSTEDEN SEÇİLEN 2.0 FLASH MODELİ) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # SENİN LİSTENDEKİ EN GARANTİ İSİM BU 👇
-    model = genai.GenerativeModel('models/gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
+    # 2.5 YERİNE 2.0 KULLANIYORUZ (LİSTENDE VAR VE KOTASI DAHA YÜKSEK) 👇
+    model = genai.GenerativeModel('models/gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
