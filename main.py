@@ -224,18 +224,19 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (KOTA DOSTU MODEL) ---
+# --- 4. BAĞLANTILAR (KESİN ÇÖZÜM MODELİ) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
-    model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
+    
+    # "gemini-1.5-flash" -> BU MODELİN KOTASI ÇOK YÜKSEK VE ASLA 2.5 HATASI VERMEZ
+    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
 
 # --- 5. ARAYÜZ MANTIK ---
 with st.sidebar:
-    # 7 DİL SEÇENEĞİ
     selected_lang = st.selectbox("Language / Dil", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
     t = translations[selected_lang]
 
