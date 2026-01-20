@@ -4,6 +4,7 @@ import google.generativeai as genai
 import requests
 import json
 import random
+import time # Hata durumunda beklemek için
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
@@ -224,13 +225,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (LİSTEDEN SEÇİLEN 2.0 FLASH MODELİ) ---
+# --- 4. BAĞLANTILAR (KOTA DOSTU "LITE" MODEL) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # 2.5 YERİNE 2.0 KULLANIYORUZ (LİSTENDE VAR VE KOTASI DAHA YÜKSEK) 👇
-    model = genai.GenerativeModel('models/gemini-2.0-flash', generation_config={"response_mime_type": "application/json"})
+    # BU MODEL LİSTENDE VAR VE KOTASI DAHA RAHAT 👇
+    model = genai.GenerativeModel('models/gemini-2.0-flash-lite-preview-02-05', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -355,7 +356,16 @@ if tetikleyici and ad:
         """
         
         try:
-            response = model.generate_content(prompt)
+            # Hata yakalama bloğu (429 verirse otomatik bekleme)
+            try:
+                response = model.generate_content(prompt)
+            except Exception as e:
+                if "429" in str(e):
+                    time.sleep(5) # 5 saniye bekle ve tekrar dene
+                    response = model.generate_content(prompt)
+                else:
+                    raise e
+
             text_response = response.text.replace('```json', '').replace('```', '').strip()
             filmler_ham = json.loads(text_response)
             filmler = puana_gore_sirala(filmler_ham)
@@ -397,7 +407,7 @@ if tetikleyici and ad:
                 st.markdown("<br>", unsafe_allow_html=True)
                 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"⚠️ Trafik yoğun, lütfen 5 saniye sonra tekrar deneyin. ({e})")
 
 elif tetikleyici and not ad:
     st.warning(t['msg_warning_name'])
