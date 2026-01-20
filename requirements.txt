@@ -1,2 +1,2 @@
 streamlit
-requests
+openai==1.59.0
