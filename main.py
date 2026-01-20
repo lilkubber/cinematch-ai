@@ -8,7 +8,7 @@ import random
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
 
-# Oturum Hafızası (Tekrarı Önlemek İçin)
+# Oturum Hafızası
 if 'gosterilen_filmler' not in st.session_state:
     st.session_state.gosterilen_filmler = []
 
@@ -22,7 +22,7 @@ def local_css(file_name):
 
 local_css("style.css")
 
-# --- 2. DİL SÖZLÜĞÜ (Global Destek) ---
+# --- 2. DİL SÖZLÜĞÜ (7 DİL) ---
 translations = {
     "TR": {
         "title": "CineMatch AI",
@@ -56,7 +56,7 @@ translations = {
         "name_label": "Your Name:",
         "name_placeholder": "Name...",
         "genre_label": "Genre:",
-        "detail_label": "Extra Details (Optional):",
+        "detail_label": "Extra Details:",
         "detail_placeholder": "E.g., Released after 2020...",
         "how_to_watch": "⚡ Context / Mood",
         "btn_love": "💑 Date Night",
@@ -65,7 +65,7 @@ translations = {
         "btn_normal": "🚀 Standard Search",
         "btn_history": "My History",
         "btn_clear": "🗑️ Clear Memory",
-        "msg_warning_name": "Please enter your name in the sidebar first.",
+        "msg_warning_name": "Please enter your name first.",
         "msg_success_history": "Memory cleared.",
         "msg_searching": "Selecting movies...",
         "res_platform": "Platform:",
@@ -81,23 +81,123 @@ translations = {
         "name_label": "Il tuo nome:",
         "name_placeholder": "Nome...",
         "genre_label": "Genere:",
-        "detail_label": "Dettagli Extra (Opzionale):",
+        "detail_label": "Dettagli Extra:",
         "detail_placeholder": "Es: Uscito dopo il 2020...",
         "how_to_watch": "⚡ Come guarderai?",
         "btn_love": "💑 Con Partner",
         "btn_random": "🎲 Mi sento fortunato",
         "btn_family": "👨‍👩‍👧‍👦 Con Famiglia",
         "btn_normal": "🚀 Ricerca Normale",
-        "btn_history": "La mia cronologia",
+        "btn_history": "Cronologia",
         "btn_clear": "🗑️ Cancella Memoria",
-        "msg_warning_name": "Per favore inserisci prima il tuo nome nella barra laterale.",
+        "msg_warning_name": "Inserisci il tuo nome.",
         "msg_success_history": "Memoria cancellata.",
-        "msg_searching": "Selezione film in corso...",
+        "msg_searching": "Selezione in corso...",
         "res_platform": "Piattaforma:",
         "res_trailer": "▶️ Trailer",
         "res_watch": "🍿 Guarda Ora",
         "prompt_lang": "Italian",
         "genres": ["Tutti", "Anime", "Fantascienza", "Azione", "Thriller", "Horror", "Romantico", "Commedia", "Crimine", "Drammatico", "Animazione"]
+    },
+    "ES": {
+        "title": "CineMatch AI",
+        "subtitle": "Asistente de Cine Personal con IA",
+        "settings": "⚙️ Configuración",
+        "name_label": "Tu Nombre:",
+        "name_placeholder": "Nombre...",
+        "genre_label": "Género:",
+        "detail_label": "Detalles Extra:",
+        "detail_placeholder": "Ej: Después de 2020...",
+        "how_to_watch": "⚡ ¿Cómo verás?",
+        "btn_love": "💑 Cita Romántica",
+        "btn_random": "🎲 Voy a tener suerte",
+        "btn_family": "👨‍👩‍👧‍👦 En Familia",
+        "btn_normal": "🚀 Búsqueda Normal",
+        "btn_history": "Historial",
+        "btn_clear": "🗑️ Borrar Memoria",
+        "msg_warning_name": "Introduce tu nombre primero.",
+        "msg_success_history": "Memoria borrada.",
+        "msg_searching": "Buscando películas...",
+        "res_platform": "Plataforma:",
+        "res_trailer": "▶️ Tráiler",
+        "res_watch": "🍿 Ver Ahora",
+        "prompt_lang": "Spanish",
+        "genres": ["Todos", "Anime", "Ciencia Ficción", "Acción", "Suspenso", "Terror", "Romance", "Comedia", "Crimen", "Drama", "Animación"]
+    },
+    "FR": {
+        "title": "CineMatch AI",
+        "subtitle": "Assistant Cinéma Personnel IA",
+        "settings": "⚙️ Paramètres",
+        "name_label": "Votre Nom:",
+        "name_placeholder": "Nom...",
+        "genre_label": "Genre:",
+        "detail_label": "Détails Supplémentaires:",
+        "detail_placeholder": "Ex: Après 2020...",
+        "how_to_watch": "⚡ Contexte",
+        "btn_love": "💑 En Couple",
+        "btn_random": "🎲 J'ai de la chance",
+        "btn_family": "👨‍👩‍👧‍👦 En Famille",
+        "btn_normal": "🚀 Recherche Normale",
+        "btn_history": "Historique",
+        "btn_clear": "🗑️ Effacer Mémoire",
+        "msg_warning_name": "Entrez votre nom d'abord.",
+        "msg_success_history": "Mémoire effacée.",
+        "msg_searching": "Sélection de films...",
+        "res_platform": "Plateforme:",
+        "res_trailer": "▶️ Bande-annonce",
+        "res_watch": "🍿 Regarder",
+        "prompt_lang": "French",
+        "genres": ["Tous", "Anime", "Science-Fiction", "Action", "Thriller", "Horreur", "Romance", "Comédie", "Crime", "Drame", "Animation"]
+    },
+    "DE": {
+        "title": "CineMatch AI",
+        "subtitle": "KI-Persönlicher Filmassistent",
+        "settings": "⚙️ Einstellungen",
+        "name_label": "Dein Name:",
+        "name_placeholder": "Name...",
+        "genre_label": "Genre:",
+        "detail_label": "Extra Details:",
+        "detail_placeholder": "Z.B.: Nach 2020...",
+        "how_to_watch": "⚡ Kontext",
+        "btn_love": "💑 Date Night",
+        "btn_random": "🎲 Auf gut Glück",
+        "btn_family": "👨‍👩‍👧‍👦 Mit Familie",
+        "btn_normal": "🚀 Normale Suche",
+        "btn_history": "Verlauf",
+        "btn_clear": "🗑️ Speicher leeren",
+        "msg_warning_name": "Bitte gib zuerst deinen Namen ein.",
+        "msg_success_history": "Speicher gelöscht.",
+        "msg_searching": "Filme werden ausgewählt...",
+        "res_platform": "Plattform:",
+        "res_trailer": "▶️ Trailer",
+        "res_watch": "🍿 Jetzt Ansehen",
+        "prompt_lang": "German",
+        "genres": ["Alle", "Anime", "Science-Fiction", "Action", "Thriller", "Horror", "Romantik", "Komödie", "Krimi", "Drama", "Animation"]
+    },
+    "JP": {
+        "title": "CineMatch AI",
+        "subtitle": "AI搭載のパーソナル映画アシスタント",
+        "settings": "⚙️ 設定",
+        "name_label": "名前:",
+        "name_placeholder": "名前...",
+        "genre_label": "ジャンル:",
+        "detail_label": "詳細 (オプション):",
+        "detail_placeholder": "例: 2020年以降...",
+        "how_to_watch": "⚡ シチュエーション",
+        "btn_love": "💑 デート",
+        "btn_random": "🎲 お任せ",
+        "btn_family": "👨‍👩‍👧‍👦 家族で",
+        "btn_normal": "🚀 通常検索",
+        "btn_history": "履歴",
+        "btn_clear": "🗑️ メモリ消去",
+        "msg_warning_name": "名前を入力してください。",
+        "msg_success_history": "メモリを消去しました。",
+        "msg_searching": "映画を選んでいます...",
+        "res_platform": "プラットフォーム:",
+        "res_trailer": "▶️ 予告編",
+        "res_watch": "🍿 今すぐ観る",
+        "prompt_lang": "Japanese",
+        "genres": ["すべて", "アニメ", "SF", "アクション", "スリラー", "ホラー", "ロマンス", "コメディ", "犯罪", "ドラマ", "アニメーション"]
     }
 }
 
@@ -124,12 +224,10 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (MODEL DEĞİŞTİRİLDİ) ---
+# --- 4. BAĞLANTILAR (KOTA DOSTU MODEL) ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
-    
-    # KOTA DOSTU MODEL SEÇİLDİ: 'gemini-flash-latest' 👇
     model = genai.GenerativeModel('gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
@@ -137,8 +235,8 @@ except Exception as e:
 
 # --- 5. ARAYÜZ MANTIK ---
 with st.sidebar:
-    # Dil Seçimi
-    selected_lang = st.selectbox("Language / Dil / Lingua", ["TR", "EN", "IT"])
+    # 7 DİL SEÇENEĞİ
+    selected_lang = st.selectbox("Language / Dil", ["TR", "EN", "IT", "ES", "FR", "DE", "JP"])
     t = translations[selected_lang]
 
 st.markdown(f"<h1>🍿 {t['title']}</h1>", unsafe_allow_html=True)
