@@ -4,7 +4,7 @@ import google.generativeai as genai
 import requests
 import json
 import random
-import time # Hata durumunda beklemek için
+import time
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="CineMatch AI", page_icon="🍿", layout="wide")
@@ -225,13 +225,13 @@ def puana_gore_sirala(filmler_listesi):
             return 0.0
     return sorted(filmler_listesi, key=puan_temizle, reverse=True)
 
-# --- 4. BAĞLANTILAR (KOTA DOSTU "LITE" MODEL) ---
+# --- 4. BAĞLANTILAR ---
 try:
     supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     genai.configure(api_key=st.secrets["google"]["api_key"])
     
-    # BU MODEL LİSTENDE VAR VE KOTASI DAHA RAHAT 👇
-    model = genai.GenerativeModel('models/gemini-2.0-flash-lite-preview-02-05', generation_config={"response_mime_type": "application/json"})
+    # "gemini-flash-latest" -> Yeni API Key ile en yüksek kotalı modeldir (1500 İstek/Gün)
+    model = genai.GenerativeModel('models/gemini-flash-latest', generation_config={"response_mime_type": "application/json"})
 except Exception as e:
     st.error(f"Connection Error: {e}")
     st.stop()
@@ -356,13 +356,13 @@ if tetikleyici and ad:
         """
         
         try:
-            # Hata yakalama bloğu (429 verirse otomatik bekleme)
+            # Hata yakalama bloğu (429 gelirse bilgilendir)
             try:
                 response = model.generate_content(prompt)
             except Exception as e:
                 if "429" in str(e):
-                    time.sleep(5) # 5 saniye bekle ve tekrar dene
-                    response = model.generate_content(prompt)
+                    st.error("🚨 Günlük bedava kotan doldu! Yeni bir API Key alarak devam edebilirsin.")
+                    st.stop()
                 else:
                     raise e
 
@@ -407,7 +407,7 @@ if tetikleyici and ad:
                 st.markdown("<br>", unsafe_allow_html=True)
                 
         except Exception as e:
-            st.error(f"⚠️ Trafik yoğun, lütfen 5 saniye sonra tekrar deneyin. ({e})")
+            st.error(f"Hata: {e}")
 
 elif tetikleyici and not ad:
     st.warning(t['msg_warning_name'])
